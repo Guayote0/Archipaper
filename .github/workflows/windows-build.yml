@@ -1,0 +1,28 @@
+name: Build Archipaper for Windows
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+    tags: ["v*"]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Install installer compiler
+        shell: pwsh
+        run: choco install innosetup --yes --no-progress
+      - name: Publish single-file application
+        shell: pwsh
+        run: .\build.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Archipaper-Windows-x64
+          path: |
+            release/Archipaper.exe
+            installer-output/Archipaper-Setup.exe
