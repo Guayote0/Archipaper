@@ -7,6 +7,8 @@ public sealed class OnlineCandidate
     public string Id { get; set; } = "";
     public string Title { get; set; } = "";
     public string ArchitectOrCategory { get; set; } = "";
+    public string Architect { get; set; } = "";
+    public string ProjectName { get; set; } = "";
     public string Artist { get; set; } = "Unknown contributor";
     public string License { get; set; } = "";
     public string LicenseUrl { get; set; } = "";
@@ -25,6 +27,8 @@ public sealed class ApprovedImageMetadata
     public string Id { get; set; } = "";
     public string FilePath { get; set; } = "";
     public string Title { get; set; } = "";
+    public string Architect { get; set; } = "";
+    public string ProjectName { get; set; } = "";
     public string Artist { get; set; } = "";
     public string License { get; set; } = "";
     public string LicenseUrl { get; set; } = "";

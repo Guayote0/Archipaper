@@ -68,15 +68,20 @@
             <Border x:Name="ReviewPanel" Background="#0C171717" Padding="12" Margin="0,10,0,0" Visibility="Collapsed">
               <Grid>
                 <Grid.ColumnDefinitions><ColumnDefinition Width="220"/><ColumnDefinition/></Grid.ColumnDefinitions>
-                <Border Height="145" Background="#18171717">
+                <Border Height="215" Background="#18171717">
                   <Image x:Name="CandidateImage" Stretch="UniformToFill"/>
                 </Border>
                 <StackPanel Grid.Column="1" Margin="16,0,0,0">
                   <TextBlock x:Name="CandidateTitle" FontWeight="SemiBold" FontSize="15" TextWrapping="Wrap" MaxHeight="44"/>
                   <TextBlock x:Name="CandidateSubject" Foreground="{StaticResource AccentBrush}" Margin="0,4,0,0"/>
                   <TextBlock x:Name="CandidateCredit" Opacity=".65" TextWrapping="Wrap" Margin="0,4,0,8" MaxHeight="38"/>
+                  <TextBox x:Name="CandidateArchitectText" Padding="7,5" Margin="0,0,0,5"
+                           ToolTip="Architect shown on the wallpaper"/>
+                  <TextBox x:Name="CandidateProjectText" Padding="7,5" Margin="0,0,0,5"
+                           ToolTip="Project name shown on the wallpaper"/>
                   <StackPanel Orientation="Horizontal">
                     <Button Content="APPROVE" Background="{StaticResource AccentBrush}" Click="Approve_Click"/>
+                    <Button Content="SKIP" Click="Skip_Click"/>
                     <Button Content="REJECT" Click="Reject_Click"/>
                     <Button Content="SOURCE" Click="Source_Click"/>
                   </StackPanel>

@@ -13,7 +13,7 @@ public sealed class WikimediaDiscoveryService : IDisposable
     public WikimediaDiscoveryService()
     {
         _http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
-        _http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("Archipaper", "0.2"));
+        _http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("Archipaper", "0.5"));
         _http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("(desktop-wallpaper-app)"));
     }
 
@@ -51,6 +51,8 @@ public sealed class WikimediaDiscoveryService : IDisposable
                     Id = page.GetProperty("pageid").GetInt64().ToString(),
                     Title = title,
                     ArchitectOrCategory = subject,
+                    Architect = IsArchitectSubject(subject) ? subject : "",
+                    ProjectName = Path.GetFileNameWithoutExtension(title).Replace('_', ' '),
                     Artist = Clean(Meta(metadata, "Artist")),
                     License = Clean(license),
                     LicenseUrl = Clean(Meta(metadata, "LicenseUrl")),
@@ -82,5 +84,10 @@ public sealed class WikimediaDiscoveryService : IDisposable
         element.TryGetProperty(name, out var value) ? value.ToString() : "";
 
     private static string Clean(string value) => WebUtility.HtmlDecode(System.Text.RegularExpressions.Regex.Replace(value, "<[^>]+>", " ")).Trim();
+
+    private static bool IsArchitectSubject(string subject) => subject is not
+        ("Buildings" or "Interiors" or "Details" or "Drawings" or "Models" or
+         "Parametric Architecture" or "contemporary architecture");
+
     public void Dispose() => _http.Dispose();
 }

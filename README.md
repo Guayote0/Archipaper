@@ -2,7 +2,7 @@
 
 Archipaper is a native Windows wallpaper application designed for architecture imagery and mixed-orientation, multi-monitor setups.
 
-## Current build (0.3)
+## Current build (0.5)
 
 - Native Windows 10/11 desktop application
 - Independent wallpaper assignment per monitor
@@ -15,7 +15,10 @@ Archipaper is a native Windows wallpaper application designed for architecture i
 - Crash logging without taking down the rotation scheduler
 - Online discovery from Wikimedia Commons without an API key
 - Semi-automatic approval/rejection queue with local previews
+- Non-destructive queue skipping
 - Full-resolution downloads only after approval
+- Cached-preview fallback when a full-resolution download is unavailable
+- Editable architect and project-name captions for approved online wallpapers
 - Source, contributor, license, and license-link preservation
 - Selectable architecture categories
 - Weighted discovery for Steven Holl and Enric Miralles

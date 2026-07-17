@@ -6,6 +6,7 @@ public sealed class RotationService : IDisposable
 {
     private readonly DesktopWallpaperService _desktop;
     private readonly LocalWallpaperSource _source;
+    private readonly CaptionedWallpaperService _captions;
     private readonly JsonStore _store;
     private readonly SemaphoreSlim _rotationLock = new(1, 1);
     private readonly Random _random = new();
@@ -23,6 +24,7 @@ public sealed class RotationService : IDisposable
         _store = store;
         _desktop = new DesktopWallpaperService();
         _source = new LocalWallpaperSource();
+        _captions = new CaptionedWallpaperService();
     }
 
     public void StartTimer()
@@ -65,7 +67,12 @@ public sealed class RotationService : IDisposable
                     ? candidates[_random.Next(candidates.Count)]
                     : shared;
                 shared ??= selected;
-                _desktop.Set(monitor.Id, selected.FilePath);
+                var metadata = approvedMetadata.FirstOrDefault(x => x.IsAvailable &&
+                    string.Equals(x.FilePath, selected.FilePath, StringComparison.OrdinalIgnoreCase));
+                var wallpaperPath = metadata is null
+                    ? selected.FilePath
+                    : _captions.Create(selected.FilePath, metadata, monitor);
+                _desktop.Set(monitor.Id, wallpaperPath);
                 _history.Add(new HistoryEntry(selected.Id, selected.FilePath, monitor.Id, DateTimeOffset.Now));
                 recent.Add(selected.Id);
             }

@@ -59,21 +59,40 @@ public sealed class ReviewQueueService : IDisposable
         return added;
     }
 
-    public async Task ApproveAsync(OnlineCandidate candidate, CancellationToken token)
+    public async Task<bool> ApproveAsync(OnlineCandidate candidate, CancellationToken token)
     {
         var extension = ExtensionFromUrl(candidate.OriginalUrl);
         var path = Path.Combine(AppPaths.Approved, SafeName(candidate.Id, extension));
         var temp = path + ".download";
-        await _discovery.DownloadAsync(candidate.OriginalUrl, temp, token);
+        var fullResolution = true;
+        try
+        {
+            await _discovery.DownloadAsync(candidate.OriginalUrl, temp, token);
+        }
+        catch (Exception ex) when (!token.IsCancellationRequested && File.Exists(candidate.PreviewFilePath))
+        {
+            AppLog.Error(ex);
+            File.Copy(candidate.PreviewFilePath, temp, true);
+            fullResolution = false;
+        }
         File.Move(temp, path, true);
         candidate.State = ReviewState.Approved;
         _approved.Add(new ApprovedImageMetadata
         {
             Id = candidate.Id, FilePath = path, Title = candidate.Title, Artist = candidate.Artist,
+            Architect = candidate.Architect, ProjectName = candidate.ProjectName,
             License = candidate.License, LicenseUrl = candidate.LicenseUrl,
             SourcePageUrl = candidate.SourcePageUrl, ApprovedAt = DateTimeOffset.Now
         });
         await _store.SaveAsync(AppPaths.ApprovedMetadata, _approved);
+        await SaveQueueAsync();
+        return fullResolution;
+    }
+
+    public async Task SkipAsync(OnlineCandidate candidate)
+    {
+        if (!_queue.Remove(candidate)) return;
+        _queue.Add(candidate);
         await SaveQueueAsync();
     }
 

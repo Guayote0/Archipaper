@@ -1,0 +1,16 @@
+ARCHIPAPER v0.5 UPDATE
+
+This cumulative update includes the v0.4 queue improvements and the new wallpaper caption feature.
+
+What changed:
+
+- Adds a SKIP button that keeps the image in the review queue.
+- Falls back to the cached preview if a full-resolution approval download fails.
+- Adds editable architect and project-name fields before approval.
+- Adds a bottom-left ARCHITECT / PROJECT caption to approved online wallpapers.
+- Keeps original approved image files untouched; captioned wallpaper copies are generated in Archipaper's cache.
+- Fits the generated copy to each monitor so the caption remains visible.
+
+Existing approved online images use their saved title as the project name. Their architect is shown as Unknown if that information was not recorded when they were approved.
+
+Local-folder images are unchanged because they do not have reliable architect or project metadata.

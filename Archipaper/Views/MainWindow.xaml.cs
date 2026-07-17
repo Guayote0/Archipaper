@@ -133,17 +133,29 @@ public partial class MainWindow : Window
     private async void Approve_Click(object sender, RoutedEventArgs e)
     {
         if (_candidate is null) return;
+        _candidate.Architect = CandidateArchitectText.Text.Trim();
+        _candidate.ProjectName = CandidateProjectText.Text.Trim();
         ReviewPanel.IsEnabled = false;
         QueueStatus.Text = "Downloading the full-resolution image…";
         try
         {
-            await _reviewQueue.ApproveAsync(_candidate, CancellationToken.None);
-            QueueStatus.Text = "Approved. This image is now available for wallpaper rotation.";
+            var fullResolution = await _reviewQueue.ApproveAsync(_candidate, CancellationToken.None);
+            QueueStatus.Text = fullResolution
+                ? "Approved. This image is now available for wallpaper rotation."
+                : "Approved using the cached preview because the full-resolution download was unavailable.";
             ShowNextCandidate();
             RefreshApprovedCollection();
         }
         catch (Exception ex) { AppLog.Error(ex); QueueStatus.Text = "Download failed; the image remains in the review queue."; }
         finally { ReviewPanel.IsEnabled = true; }
+    }
+
+    private async void Skip_Click(object sender, RoutedEventArgs e)
+    {
+        if (_candidate is null) return;
+        await _reviewQueue.SkipAsync(_candidate);
+        QueueStatus.Text = "Skipped for now. The image remains in the review queue.";
+        ShowNextCandidate();
     }
 
     private async void Reject_Click(object sender, RoutedEventArgs e)
@@ -173,6 +185,8 @@ public partial class MainWindow : Window
         CandidateTitle.Text = _candidate.Title;
         CandidateSubject.Text = _candidate.ArchitectOrCategory;
         CandidateCredit.Text = $"{_candidate.Artist} · {_candidate.License} · {_candidate.Width:N0} × {_candidate.Height:N0}";
+        CandidateArchitectText.Text = _candidate.Architect;
+        CandidateProjectText.Text = string.IsNullOrWhiteSpace(_candidate.ProjectName) ? _candidate.Title : _candidate.ProjectName;
         try
         {
             var bitmap = new BitmapImage();

@@ -8,6 +8,7 @@ public static class AppPaths
     public static readonly string History = Path.Combine(Root, "history.json");
     public static readonly string Cache = Path.Combine(Root, "cache");
     public static readonly string CandidateCache = Path.Combine(Cache, "candidates");
+    public static readonly string CaptionCache = Path.Combine(Cache, "captions");
     public static readonly string Approved = Path.Combine(Root, "approved");
     public static readonly string Removed = Path.Combine(Root, "removed");
     public static readonly string ReviewQueue = Path.Combine(Root, "review-queue.json");
@@ -19,6 +20,7 @@ public static class AppPaths
         Directory.CreateDirectory(Root);
         Directory.CreateDirectory(Cache);
         Directory.CreateDirectory(CandidateCache);
+        Directory.CreateDirectory(CaptionCache);
         Directory.CreateDirectory(Approved);
         Directory.CreateDirectory(Removed);
     }
