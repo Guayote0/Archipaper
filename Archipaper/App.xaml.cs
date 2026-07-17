@@ -1,9 +1,9 @@
-using System.Windows;
+global using System.Net.Http;
 using Archipaper.Services;
 
 namespace Archipaper;
 
-public partial class App : Application
+public partial class App : System.Windows.Application
 {
     private AppController? _controller;
     private Mutex? _singleInstance;
