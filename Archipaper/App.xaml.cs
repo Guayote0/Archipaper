@@ -1,3 +1,6 @@
+global using Application = System.Windows.Application;
+global using MessageBox = System.Windows.MessageBox;
+global using System.IO;
 global using System.Net.Http;
 using System.Windows;
 using Archipaper.Services;
