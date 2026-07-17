@@ -13,7 +13,8 @@
 
     <StackPanel>
       <TextBlock Text="A R C H I P A P E R" FontSize="30" FontWeight="SemiBold"/>
-      <TextBlock Text="Architecture for your desktop" FontSize="15" Opacity=".62" Margin="0,4,0,25"/>
+      <TextBlock Text="Architecture for your desktop" FontSize="15" Opacity=".62" Margin="0,4,0,0"/>
+      <TextBlock Text="Developed by Iván Castro" FontSize="11" Opacity=".46" Margin="0,3,0,25"/>
       <TextBlock x:Name="MonitorText" FontSize="12" Opacity=".55" Margin="0,-18,0,20"/>
     </StackPanel>
 
@@ -51,6 +52,14 @@
             <TextBlock Text="ONLINE ARCHITECTURE COLLECTION" FontWeight="Bold" FontSize="12"/>
             <TextBlock Text="Discover freely licensed architecture images, then approve each one before Archipaper can use it. Source, contributor, and license information are preserved."
                        TextWrapping="Wrap" Opacity=".68" Margin="0,8,0,10"/>
+            <TextBlock Text="SOURCES" FontWeight="SemiBold" FontSize="11" Opacity=".72" Margin="0,2,0,3"/>
+            <WrapPanel Margin="0,0,0,5">
+              <CheckBox x:Name="WikimediaSourceCheck" Content="Wikimedia Commons" Margin="0,4,18,4"/>
+              <CheckBox x:Name="OpenverseSourceCheck" Content="Openverse (experimental)" Margin="0,4,18,4"/>
+              <CheckBox x:Name="LibraryOfCongressSourceCheck" Content="Library of Congress drawings" Margin="0,4,18,4"/>
+            </WrapPanel>
+            <TextBlock Text="Made using Openverse; not endorsed or certified by Openverse. Openverse indexes third-party collections—verify each license on its source page."
+                       TextWrapping="Wrap" FontSize="10" Opacity=".56" Margin="0,0,0,10"/>
             <TextBlock Text="CATEGORIES" FontWeight="SemiBold" FontSize="11" Opacity=".72" Margin="0,2,0,3"/>
             <WrapPanel Margin="0,0,0,8">
               <CheckBox x:Name="BuildingsCategory" Content="Buildings" Margin="0,4,18,4"/>

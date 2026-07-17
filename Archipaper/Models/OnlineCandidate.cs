@@ -5,6 +5,8 @@ public enum ReviewState { Pending, Approved, Rejected }
 public sealed class OnlineCandidate
 {
     public string Id { get; set; } = "";
+    public string DiscoveryProvider { get; set; } = "wikimedia";
+    public string SourceName { get; set; } = "Wikimedia Commons";
     public string Title { get; set; } = "";
     public string ArchitectOrCategory { get; set; } = "";
     public string Architect { get; set; } = "";
@@ -33,6 +35,7 @@ public sealed class ApprovedImageMetadata
     public string License { get; set; } = "";
     public string LicenseUrl { get; set; } = "";
     public string SourcePageUrl { get; set; } = "";
+    public string SourceName { get; set; } = "";
     public DateTimeOffset ApprovedAt { get; set; }
     public bool IsFavorite { get; set; }
     public bool IsAvailable { get; set; } = true;

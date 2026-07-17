@@ -7,7 +7,7 @@ using Archipaper.Services;
 
 namespace Archipaper;
 
-public partial class App : System.Windows.Application
+public partial class App : Application
 {
     private AppController? _controller;
     private Mutex? _singleInstance;

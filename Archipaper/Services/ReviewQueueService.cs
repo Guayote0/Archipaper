@@ -7,7 +7,9 @@ namespace Archipaper.Services;
 public sealed class ReviewQueueService : IDisposable
 {
     private readonly JsonStore _store;
-    private readonly WikimediaDiscoveryService _discovery = new();
+    private readonly WikimediaDiscoveryService _wikimedia = new();
+    private readonly OpenverseDiscoveryService _openverse = new();
+    private readonly LibraryOfCongressDiscoveryService _libraryOfCongress = new();
     private readonly Random _random = new();
     private List<OnlineCandidate> _queue;
     private List<ApprovedImageMetadata> _approved;
@@ -45,11 +47,31 @@ public sealed class ReviewQueueService : IDisposable
         var added = 0;
         foreach (var subject in subjects)
         {
-            foreach (var candidate in await _discovery.SearchAsync(subject, 10, token))
+            var candidates = new List<OnlineCandidate>();
+            if (settings.SearchWikimedia)
+            {
+                try { candidates.AddRange(await _wikimedia.SearchAsync(subject, 8, token)); }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex) { AppLog.Error(ex); }
+            }
+            if (settings.SearchOpenverse)
+            {
+                try { candidates.AddRange(await _openverse.SearchAsync(subject, 15, token)); }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex) { AppLog.Error(ex); }
+            }
+            if (settings.SearchLibraryOfCongress)
+            {
+                try { candidates.AddRange(await _libraryOfCongress.SearchAsync(subject, 8, token)); }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex) { AppLog.Error(ex); }
+            }
+
+            foreach (var candidate in candidates)
             {
                 if (!known.Add(candidate.Id)) continue;
                 candidate.PreviewFilePath = Path.Combine(AppPaths.CandidateCache, SafeName(candidate.Id, ".jpg"));
-                try { await _discovery.DownloadAsync(candidate.PreviewUrl, candidate.PreviewFilePath, token); }
+                try { await DownloadAsync(candidate, candidate.PreviewUrl, candidate.PreviewFilePath, token); }
                 catch (Exception ex) { AppLog.Error(ex); continue; }
                 _queue.Add(candidate);
                 added++;
@@ -67,7 +89,7 @@ public sealed class ReviewQueueService : IDisposable
         var fullResolution = true;
         try
         {
-            await _discovery.DownloadAsync(candidate.OriginalUrl, temp, token);
+            await DownloadAsync(candidate, candidate.OriginalUrl, temp, token);
         }
         catch (Exception ex) when (!token.IsCancellationRequested && File.Exists(candidate.PreviewFilePath))
         {
@@ -82,7 +104,8 @@ public sealed class ReviewQueueService : IDisposable
             Id = candidate.Id, FilePath = path, Title = candidate.Title, Artist = candidate.Artist,
             Architect = candidate.Architect, ProjectName = candidate.ProjectName,
             License = candidate.License, LicenseUrl = candidate.LicenseUrl,
-            SourcePageUrl = candidate.SourcePageUrl, ApprovedAt = DateTimeOffset.Now
+            SourcePageUrl = candidate.SourcePageUrl, SourceName = candidate.SourceName,
+            ApprovedAt = DateTimeOffset.Now
         });
         await _store.SaveAsync(AppPaths.ApprovedMetadata, _approved);
         await SaveQueueAsync();
@@ -127,6 +150,13 @@ public sealed class ReviewQueueService : IDisposable
         return _store.SaveAsync(AppPaths.ReviewQueue, _queue);
     }
 
+    private Task DownloadAsync(OnlineCandidate candidate, string url, string destination, CancellationToken token) =>
+        candidate.DiscoveryProvider.Equals("openverse", StringComparison.OrdinalIgnoreCase)
+            ? _openverse.DownloadAsync(url, destination, token)
+            : candidate.DiscoveryProvider.Equals("loc", StringComparison.OrdinalIgnoreCase)
+                ? _libraryOfCongress.DownloadAsync(url, destination, token)
+                : _wikimedia.DownloadAsync(url, destination, token);
+
     private static string SafeName(string value, string extension)
     {
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant()[..20];
@@ -139,5 +169,10 @@ public sealed class ReviewQueueService : IDisposable
         return ext is ".jpg" or ".jpeg" or ".png" or ".bmp" ? ext : ".jpg";
     }
 
-    public void Dispose() => _discovery.Dispose();
+    public void Dispose()
+    {
+        _wikimedia.Dispose();
+        _openverse.Dispose();
+        _libraryOfCongress.Dispose();
+    }
 }

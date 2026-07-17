@@ -1,0 +1,34 @@
+ARCHIPAPER v0.8 UPDATE
+
+What changed:
+
+- Adds Library of Congress drawings as a new online source.
+- Adds a new source checkbox: Library of Congress drawings.
+- Searches for architectural drawings and sketches, not only finished-building photos.
+- Keeps Wikimedia Commons and Openverse available.
+- Hides unknown image dimensions in the review credit instead of showing 0 × 0.
+- Keeps the main-window credit as: Developed by Iván Castro.
+
+How to upload this update to GitHub:
+
+1. Download and unzip Archipaper-v0.8-update.zip.
+2. Open your GitHub repository:
+   https://github.com/Guayote0/Archipaper
+3. Click Add file.
+4. Click Upload files.
+5. Drag the unzipped files and folders into the upload area.
+6. If GitHub asks whether to replace files, allow it.
+7. At the bottom, choose Commit directly to the main branch.
+8. Click Commit changes.
+9. Wait for the Actions build to finish.
+
+After installing:
+
+1. Open Archipaper.
+2. Make sure Library of Congress drawings is checked.
+3. Click DISCOVER NEW IMAGES.
+4. Approve the drawings/sketches you like.
+
+Note:
+
+Library of Congress records can include item-specific rights notes. Archipaper keeps the source link and rights note so you can check each item before using it beyond personal wallpaper.

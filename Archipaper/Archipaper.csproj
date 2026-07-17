@@ -10,7 +10,7 @@
     <ApplicationIcon>Assets\archipaper.ico</ApplicationIcon>
     <AssemblyName>Archipaper</AssemblyName>
     <RootNamespace>Archipaper</RootNamespace>
-    <Version>0.5.0</Version>
+    <Version>0.8.0</Version>
   </PropertyGroup>
   <ItemGroup>
     <Resource Include="Assets\archipaper.ico" />

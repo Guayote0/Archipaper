@@ -50,6 +50,9 @@ public partial class MainWindow : Window
         DifferentCheck.IsChecked = settings.UseDifferentImagePerMonitor;
         RecentCheck.IsChecked = settings.AvoidRecentImages;
         StartupCheck.IsChecked = settings.StartWithWindows;
+        WikimediaSourceCheck.IsChecked = settings.SearchWikimedia;
+        OpenverseSourceCheck.IsChecked = settings.SearchOpenverse;
+        LibraryOfCongressSourceCheck.IsChecked = settings.SearchLibraryOfCongress;
         BuildingsCategory.IsChecked = settings.EnabledCategories.Contains("Buildings");
         InteriorsCategory.IsChecked = settings.EnabledCategories.Contains("Interiors");
         DetailsCategory.IsChecked = settings.EnabledCategories.Contains("Details");
@@ -72,6 +75,9 @@ public partial class MainWindow : Window
         settings.UseDifferentImagePerMonitor = DifferentCheck.IsChecked == true;
         settings.AvoidRecentImages = RecentCheck.IsChecked == true;
         settings.StartWithWindows = StartupCheck.IsChecked == true;
+        settings.SearchWikimedia = WikimediaSourceCheck.IsChecked == true;
+        settings.SearchOpenverse = OpenverseSourceCheck.IsChecked == true;
+        settings.SearchLibraryOfCongress = LibraryOfCongressSourceCheck.IsChecked == true;
         settings.EnabledCategories = new[]
         {
             ("Buildings", BuildingsCategory), ("Interiors", InteriorsCategory),
@@ -184,9 +190,13 @@ public partial class MainWindow : Window
         }
         CandidateTitle.Text = _candidate.Title;
         CandidateSubject.Text = _candidate.ArchitectOrCategory;
-        CandidateCredit.Text = $"{_candidate.Artist} · {_candidate.License} · {_candidate.Width:N0} × {_candidate.Height:N0}";
-        CandidateArchitectText.Text = _candidate.Architect;
-        CandidateProjectText.Text = string.IsNullOrWhiteSpace(_candidate.ProjectName) ? _candidate.Title : _candidate.ProjectName;
+        var resolution = _candidate.Width > 0 && _candidate.Height > 0 ? $" · {_candidate.Width:N0} × {_candidate.Height:N0}" : "";
+        CandidateCredit.Text = $"{_candidate.SourceName} · {_candidate.Artist} · {_candidate.License}{resolution}";
+        var architect = _candidate.Architect?.Trim() ?? "";
+        CandidateArchitectText.Text = architect;
+        CandidateProjectText.Text = string.IsNullOrWhiteSpace(_candidate.ProjectName)
+            ? ArchitectureMetadata.CleanProjectName(_candidate.Title, architect)
+            : _candidate.ProjectName;
         try
         {
             var bitmap = new BitmapImage();
@@ -221,7 +231,7 @@ public partial class MainWindow : Window
         FavoriteButton.IsEnabled = ApprovedSourceButton.IsEnabled = RemoveButton.IsEnabled = selected is not null;
         if (selected is null) return;
         FavoriteButton.Content = selected.IsFavorite ? "UNFAVORITE" : "FAVORITE";
-        ApprovedDetails.Text = $"{selected.Artist} · {selected.License}";
+        ApprovedDetails.Text = $"{selected.SourceName} · {selected.Artist} · {selected.License}".Trim(' ', '·');
     }
 
     private async void Favorite_Click(object sender, RoutedEventArgs e)

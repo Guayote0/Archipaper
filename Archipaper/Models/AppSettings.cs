@@ -9,6 +9,9 @@ public sealed class AppSettings
     public bool AvoidRecentImages { get; set; } = true;
     public int RecentImageLimit { get; set; } = 40;
     public string LocalImageFolder { get; set; } = "";
+    public bool SearchWikimedia { get; set; } = true;
+    public bool SearchOpenverse { get; set; } = true;
+    public bool SearchLibraryOfCongress { get; set; } = true;
     public List<string> EnabledCategories { get; set; } =
         ["Buildings", "Interiors", "Details", "Drawings", "Models", "Parametric Architecture"];
     public List<string> PreferredArchitects { get; set; } =

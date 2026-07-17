@@ -2,7 +2,7 @@
 
 Archipaper is a native Windows wallpaper application designed for architecture imagery and mixed-orientation, multi-monitor setups.
 
-## Current build (0.5)
+## Current build (0.8)
 
 - Native Windows 10/11 desktop application
 - Independent wallpaper assignment per monitor
@@ -14,11 +14,16 @@ Archipaper is a native Windows wallpaper application designed for architecture i
 - Notification-area controls and optional Windows startup
 - Crash logging without taking down the rotation scheduler
 - Online discovery from Wikimedia Commons without an API key
+- Experimental Openverse discovery across additional openly licensed collections
+- Experimental Library of Congress discovery focused on architectural drawings and sketches
+- Source switches for Wikimedia Commons, Openverse, and Library of Congress drawings
 - Semi-automatic approval/rejection queue with local previews
 - Non-destructive queue skipping
 - Full-resolution downloads only after approval
 - Cached-preview fallback when a full-resolution download is unavailable
 - Editable architect and project-name captions for approved online wallpapers
+- Smaller, more discreet wallpaper captions
+- Main-window credit for Iván Castro
 - Source, contributor, license, and license-link preservation
 - Selectable architecture categories
 - Weighted discovery for Steven Holl and Enric Miralles
@@ -50,4 +55,4 @@ dotnet run --project .\Archipaper\Archipaper.csproj
 
 ## Privacy and credits
 
-Archipaper does not upload images or send analytics. Online discovery queries Wikimedia Commons and downloads only previews until the user approves an image. Source and contributor/license attribution are retained locally for every approved image.
+Archipaper does not upload images or send analytics. Online discovery queries Wikimedia Commons and, when enabled, Openverse and the Library of Congress. It downloads only previews until the user approves an image. Source and contributor/license attribution are retained locally for every approved image. Openverse aggregates third-party metadata, and Library of Congress records can have item-specific rights advisories, so users should verify the license or rights note on each original source page.

@@ -10,8 +10,10 @@ public sealed class CaptionedWallpaperService
 {
     public string Create(string sourcePath, ApprovedImageMetadata metadata, MonitorInfo monitor)
     {
-        var architect = string.IsNullOrWhiteSpace(metadata.Architect) ? "Unknown" : metadata.Architect.Trim();
-        var project = string.IsNullOrWhiteSpace(metadata.ProjectName) ? metadata.Title.Trim() : metadata.ProjectName.Trim();
+        var architect = metadata.Architect?.Trim() ?? "";
+        var project = string.IsNullOrWhiteSpace(metadata.ProjectName)
+            ? ArchitectureMetadata.CleanProjectName(metadata.Title, architect)
+            : metadata.ProjectName.Trim();
         var identity = $"{sourcePath}|{File.GetLastWriteTimeUtc(sourcePath).Ticks}|{monitor.Width}|" +
             $"{monitor.Height}|{architect}|{project}";
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identity))).ToLowerInvariant()[..24];
@@ -33,17 +35,18 @@ public sealed class CaptionedWallpaperService
         graphics.DrawImage(source, (monitor.Width - drawWidth) / 2, (monitor.Height - drawHeight) / 2,
             drawWidth, drawHeight);
 
-        var padding = Math.Max(24, monitor.Width / 48);
-        var captionWidth = Math.Min(monitor.Width - padding * 2, Math.Max(480, (int)(monitor.Width * .58)));
-        var lineHeight = Math.Max(27, monitor.Height / 38);
-        var captionHeight = lineHeight * 2 + padding;
+        var lines = string.IsNullOrWhiteSpace(architect) ? 1 : 2;
+        var padding = Math.Max(14, monitor.Width / 80);
+        var captionWidth = Math.Min(monitor.Width - padding * 2, Math.Max(340, (int)(monitor.Width * .42)));
+        var lineHeight = Math.Max(19, monitor.Height / 55);
+        var captionHeight = lineHeight * lines + padding;
         var left = padding;
         var top = monitor.Height - captionHeight - padding;
-        using var panelBrush = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(168, 10, 10, 10));
+        using var panelBrush = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(142, 10, 10, 10));
         graphics.FillRectangle(panelBrush, left - padding / 2, top - padding / 2,
             captionWidth + padding, captionHeight + padding / 2);
 
-        var fontSize = Math.Max(15f, monitor.Height / 64f);
+        var fontSize = Math.Max(11f, monitor.Height / 88f);
         using var font = new System.Drawing.Font("Segoe UI", fontSize, System.Drawing.FontStyle.Regular,
             System.Drawing.GraphicsUnit.Pixel);
         using var textBrush = new System.Drawing.SolidBrush(System.Drawing.Color.White);
@@ -52,10 +55,18 @@ public sealed class CaptionedWallpaperService
             Trimming = System.Drawing.StringTrimming.EllipsisCharacter,
             FormatFlags = System.Drawing.StringFormatFlags.NoWrap
         };
-        graphics.DrawString($"ARCHITECT: {architect}", font, textBrush,
-            new System.Drawing.RectangleF(left, top, captionWidth, lineHeight), format);
-        graphics.DrawString($"PROJECT: {project}", font, textBrush,
-            new System.Drawing.RectangleF(left, top + lineHeight, captionWidth, lineHeight), format);
+        if (string.IsNullOrWhiteSpace(architect))
+        {
+            graphics.DrawString($"PROJECT: {project}", font, textBrush,
+                new System.Drawing.RectangleF(left, top, captionWidth, lineHeight), format);
+        }
+        else
+        {
+            graphics.DrawString($"ARCHITECT: {architect}", font, textBrush,
+                new System.Drawing.RectangleF(left, top, captionWidth, lineHeight), format);
+            graphics.DrawString($"PROJECT: {project}", font, textBrush,
+                new System.Drawing.RectangleF(left, top + lineHeight, captionWidth, lineHeight), format);
+        }
 
         canvas.Save(output, ImageFormat.Jpeg);
         return output;

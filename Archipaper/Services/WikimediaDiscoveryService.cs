@@ -13,7 +13,7 @@ public sealed class WikimediaDiscoveryService : IDisposable
     public WikimediaDiscoveryService()
     {
         _http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
-        _http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("Archipaper", "0.5"));
+        _http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("Archipaper", "0.8"));
         _http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("(desktop-wallpaper-app)"));
     }
 
@@ -40,19 +40,23 @@ public sealed class WikimediaDiscoveryService : IDisposable
                 var mime = Value(info, "mime");
                 var width = info.GetProperty("width").GetInt32();
                 var height = info.GetProperty("height").GetInt32();
-                if (!mime.StartsWith("image/", StringComparison.OrdinalIgnoreCase) || width < 1800 || height < 1200) continue;
+                if (!mime.StartsWith("image/", StringComparison.OrdinalIgnoreCase)
+                    || Math.Min(width, height) < 1200 || Math.Max(width, height) < 1800) continue;
                 var metadata = info.GetProperty("extmetadata");
                 var license = Meta(metadata, "LicenseShortName");
                 if (string.IsNullOrWhiteSpace(license)) continue;
 
                 var title = Value(page, "title").Replace("File:", "", StringComparison.OrdinalIgnoreCase);
+                var architect = "";
                 results.Add(new OnlineCandidate
                 {
                     Id = page.GetProperty("pageid").GetInt64().ToString(),
+                    DiscoveryProvider = "wikimedia",
+                    SourceName = "Wikimedia Commons",
                     Title = title,
                     ArchitectOrCategory = subject,
-                    Architect = IsArchitectSubject(subject) ? subject : "",
-                    ProjectName = Path.GetFileNameWithoutExtension(title).Replace('_', ' '),
+                    Architect = architect,
+                    ProjectName = ArchitectureMetadata.CleanProjectName(title, architect),
                     Artist = Clean(Meta(metadata, "Artist")),
                     License = Clean(license),
                     LicenseUrl = Clean(Meta(metadata, "LicenseUrl")),
@@ -84,10 +88,6 @@ public sealed class WikimediaDiscoveryService : IDisposable
         element.TryGetProperty(name, out var value) ? value.ToString() : "";
 
     private static string Clean(string value) => WebUtility.HtmlDecode(System.Text.RegularExpressions.Regex.Replace(value, "<[^>]+>", " ")).Trim();
-
-    private static bool IsArchitectSubject(string subject) => subject is not
-        ("Buildings" or "Interiors" or "Details" or "Drawings" or "Models" or
-         "Parametric Architecture" or "contemporary architecture");
 
     public void Dispose() => _http.Dispose();
 }
