@@ -153,7 +153,7 @@ public partial class MainWindow : Window
 
     private void RemoveArchitect_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not Button { DataContext: ArchitectPreferenceItem item }) return;
+        if (sender is not System.Windows.Controls.Button { DataContext: ArchitectPreferenceItem item }) return;
         _architects.Remove(item);
         StatusText.Text = $"{item.Name} removed from the saved architect list.";
     }
