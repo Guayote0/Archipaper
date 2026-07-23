@@ -69,7 +69,6 @@ public partial class MainWindow : Window
         StrictArchitectCheck.IsChecked = settings.StrictArchitectSearch;
         var names = settings.AvailableArchitects
             .Concat(settings.PreferredArchitects)
-            .Concat(settings.BoostedArchitects)
             .Where(x => !string.IsNullOrWhiteSpace(x))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(x => x)
@@ -80,8 +79,7 @@ public partial class MainWindow : Window
             _architects.Add(new ArchitectPreferenceItem
             {
                 Name = name,
-                IsEnabled = settings.PreferredArchitects.Contains(name, StringComparer.OrdinalIgnoreCase),
-                IsBoosted = settings.BoostedArchitects.Contains(name, StringComparer.OrdinalIgnoreCase)
+                IsEnabled = settings.PreferredArchitects.Contains(name, StringComparer.OrdinalIgnoreCase)
             });
         }
         ArchitectList.ItemsSource = _architects;
@@ -114,7 +112,6 @@ public partial class MainWindow : Window
         }.Where(x => x.Item2.IsChecked == true).Select(x => x.Item1).ToList();
         settings.AvailableArchitects = _architects.Select(x => x.Name).ToList();
         settings.PreferredArchitects = _architects.Where(x => x.IsEnabled).Select(x => x.Name).ToList();
-        settings.BoostedArchitects = _architects.Where(x => x.IsBoosted).Select(x => x.Name).ToList();
         if (IntervalCombo.SelectedItem is ComboBoxItem item && int.TryParse(item.Tag?.ToString(), out var minutes))
             settings.RotationMinutes = minutes;
         await _save();
@@ -152,6 +149,93 @@ public partial class MainWindow : Window
             StatusText.Text = $"{name} added to preferred architects.";
         }
         NewArchitectText.Clear();
+    }
+
+    private void RemoveArchitect_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { DataContext: ArchitectPreferenceItem item }) return;
+        _architects.Remove(item);
+        StatusText.Text = $"{item.Name} removed from the saved architect list.";
+    }
+
+    private string BuildWebSearchQuery()
+    {
+        var architectNames = _architects.Where(x => x.IsEnabled).Select(x => $"\"{x.Name}\"").ToList();
+        var categoryTerms = new[]
+        {
+            (BuildingsCategory.IsChecked == true, "architecture"),
+            (InteriorsCategory.IsChecked == true, "interior"),
+            (DetailsCategory.IsChecked == true, "architectural detail"),
+            (DrawingsCategory.IsChecked == true, "architectural drawing sketch"),
+            (ModelsCategory.IsChecked == true, "architectural model")
+        }.Where(x => x.Item1).Select(x => x.Item2).ToList();
+
+        var subject = architectNames.Count switch
+        {
+            0 => "architecture",
+            1 => architectNames[0],
+            _ => "(" + string.Join(" OR ", architectNames) + ")"
+        };
+        var category = categoryTerms.Count == 0 ? "architecture" : string.Join(" OR ", categoryTerms);
+        return $"{subject} {category}";
+    }
+
+    private void SearchFlickr_Click(object sender, RoutedEventArgs e)
+    {
+        var query = Uri.EscapeDataString(BuildWebSearchQuery());
+        OpenWebPage($"https://www.flickr.com/search/?text={query}&license=4%2C5%2C9%2C10");
+        StatusText.Text = "Opened a Creative Commons Flickr search. Import any images you choose.";
+    }
+
+    private void SearchGoogle_Click(object sender, RoutedEventArgs e)
+    {
+        var query = Uri.EscapeDataString(BuildWebSearchQuery());
+        OpenWebPage($"https://www.google.com/search?tbm=isch&q={query}");
+        StatusText.Text = "Opened Google Images. Check usage rights before importing an image.";
+    }
+
+    private static void OpenWebPage(string url) =>
+        Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+
+    private async void ImportImages_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "Import images into Archipaper",
+            Filter = "Image files|*.jpg;*.jpeg;*.png;*.bmp",
+            Multiselect = true
+        };
+        if (dialog.ShowDialog(this) == true)
+            await ImportFilesAsync(dialog.FileNames);
+    }
+
+    private void Collection_DragOver(object sender, DragEventArgs e)
+    {
+        e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop) ? DragDropEffects.Copy : DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    private async void Collection_Drop(object sender, DragEventArgs e)
+    {
+        if (e.Data.GetData(DataFormats.FileDrop) is string[] paths)
+            await ImportFilesAsync(paths);
+    }
+
+    private async Task ImportFilesAsync(IEnumerable<string> paths)
+    {
+        try
+        {
+            var imported = await _reviewQueue.ImportLocalFilesAsync(paths);
+            RefreshApprovedCollection();
+            QueueStatus.Text = imported == 0
+                ? "No new supported images were imported."
+                : $"Imported {imported} image{(imported == 1 ? "" : "s")} into the approved collection.";
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error(ex);
+            QueueStatus.Text = "One or more images could not be imported.";
+        }
     }
 
     private async void ChangeNow_Click(object sender, RoutedEventArgs e)

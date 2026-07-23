@@ -24,5 +24,4 @@ public sealed class AppSettings
         ["Steven Holl", "Enric Miralles", "Carlo Scarpa", "Allied Works", "Renzo Piano", "Gaudí", "Santiago Calatrava", "Louis Kahn"];
     public List<string> PreferredArchitects { get; set; } =
         ["Steven Holl", "Enric Miralles", "Carlo Scarpa", "Allied Works", "Renzo Piano", "Gaudí", "Santiago Calatrava", "Louis Kahn"];
-    public List<string> BoostedArchitects { get; set; } = ["Steven Holl", "Enric Miralles"];
 }

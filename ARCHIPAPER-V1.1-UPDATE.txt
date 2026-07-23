@@ -1,0 +1,21 @@
+ARCHIPAPER v1.1 UPDATE
+
+WHAT CHANGED
+- Added one-click Flickr Creative Commons and Google Images searches.
+- Added multi-image import and drag-and-drop into the approved collection.
+- Cropped the logo tightly and removed the visible white rectangular background.
+- Rotation checkboxes now use a compact two-column layout.
+- Removed "Feature more often" and its weighting behavior.
+- Saved architects can now be removed individually.
+- The v1.0 rotation, category, thumbnail, and exact-architect-search improvements remain included.
+
+INSTALL
+1. Extract this ZIP.
+2. Upload the extracted contents to the main branch of Guayote0/Archipaper.
+3. Wait for the GitHub Actions Windows build to finish.
+4. Download the Archipaper-Windows-x64 artifact.
+5. Exit Archipaper from the notification-area tray icon.
+6. Run installer-output\Archipaper-Setup.exe.
+
+You do not need to uninstall the previous version. Your settings, approved
+images, favorites, and review queue remain under %LOCALAPPDATA%\Archipaper.

@@ -3,7 +3,6 @@ namespace Archipaper.Models;
 public sealed record DiscoveryRequest(
     string Architect,
     string Category,
-    bool IsBoosted,
     bool IsStrict)
 {
     public string DisplayLabel

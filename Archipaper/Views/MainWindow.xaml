@@ -17,10 +17,10 @@
 
     <Grid Margin="0,-8,0,18">
       <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="155"/>
+        <ColumnDefinition Width="145"/>
         <ColumnDefinition/>
       </Grid.ColumnDefinitions>
-      <Image Source="/Assets/archipaper-logo.png" Width="140" Height="168"
+      <Image Source="/Assets/archipaper-logo.png" Width="132" Height="154"
              Stretch="Uniform" HorizontalAlignment="Left"/>
       <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="22,0,0,0">
         <TextBlock Text="Architecture for your desktop" FontSize="16" Opacity=".68"/>
@@ -63,10 +63,12 @@
             <ComboBoxItem Tag="1440">Daily</ComboBoxItem>
           </ComboBox>
         </Grid>
-        <CheckBox x:Name="AutomaticCheck" Content="Rotate wallpapers automatically"/>
-        <CheckBox x:Name="DifferentCheck" Content="Use a different image on each monitor"/>
-        <CheckBox x:Name="RecentCheck" Content="Avoid recently used images"/>
-        <CheckBox x:Name="StartupCheck" Content="Start Archipaper with Windows" Margin="0,7,0,26"/>
+        <UniformGrid Columns="2" Margin="0,0,0,22">
+          <CheckBox x:Name="AutomaticCheck" Content="Rotate automatically" Margin="0,2,14,2"/>
+          <CheckBox x:Name="DifferentCheck" Content="Different image per monitor" Margin="0,2,0,2"/>
+          <CheckBox x:Name="RecentCheck" Content="Avoid recent images" Margin="0,2,14,2"/>
+          <CheckBox x:Name="StartupCheck" Content="Start with Windows" Margin="0,2,0,2"/>
+        </UniformGrid>
 
         <Border BorderBrush="#22171717" BorderThickness="1" Padding="18" Margin="0,0,0,16">
           <StackPanel>
@@ -81,6 +83,14 @@
             </WrapPanel>
             <TextBlock Text="Made using Openverse; not endorsed or certified by Openverse. Openverse indexes third-party collections—verify each license on its source page."
                        TextWrapping="Wrap" FontSize="10" Opacity=".56" Margin="0,0,0,10"/>
+            <TextBlock Text="WEB SEARCH + IMPORT" FontWeight="SemiBold" FontSize="11" Opacity=".72" Margin="0,2,0,3"/>
+            <WrapPanel Margin="0,0,0,3">
+              <Button Content="SEARCH FLICKR CC" Click="SearchFlickr_Click" Margin="0,4,8,4"/>
+              <Button Content="SEARCH GOOGLE IMAGES" Click="SearchGoogle_Click" Margin="0,4,8,4"/>
+              <Button Content="IMPORT IMAGES" Click="ImportImages_Click" Margin="0,4,0,4"/>
+            </WrapPanel>
+            <TextBlock Text="Web searches open in your browser. Download only images you may use, then import or drag them into the approved collection."
+                       TextWrapping="Wrap" FontSize="10" Opacity=".56" Margin="0,0,0,10"/>
             <TextBlock Text="CATEGORIES" FontWeight="SemiBold" FontSize="11" Opacity=".72" Margin="0,2,0,3"/>
             <WrapPanel Margin="0,0,0,8">
               <CheckBox x:Name="BuildingsCategory" Content="Buildings" Margin="0,4,18,4"/>
@@ -90,7 +100,7 @@
               <CheckBox x:Name="ModelsCategory" Content="Models" Margin="0,4,18,4"/>
             </WrapPanel>
             <TextBlock Text="PREFERRED ARCHITECTS" FontWeight="SemiBold" FontSize="11" Opacity=".72" Margin="0,4,0,3"/>
-            <TextBlock Text="Uncheck a name to pause it without removing it. “Feature more often” gives that architect more searches and more results."
+            <TextBlock Text="Uncheck a name to pause it, or remove names you no longer want saved."
                        TextWrapping="Wrap" FontSize="10" Opacity=".58" Margin="0,0,0,5"/>
             <ListBox x:Name="ArchitectList" MaxHeight="190" BorderBrush="#22171717" BorderThickness="1"
                      Padding="8" HorizontalContentAlignment="Stretch"
@@ -98,11 +108,11 @@
               <ListBox.ItemTemplate>
                 <DataTemplate>
                   <Grid>
-                    <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="165"/></Grid.ColumnDefinitions>
+                    <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                     <CheckBox Content="{Binding Name}" IsChecked="{Binding IsEnabled, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                               Margin="2,5"/>
-                    <CheckBox Grid.Column="1" Content="Feature more often"
-                              IsChecked="{Binding IsBoosted, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="2,5"/>
+                    <Button Grid.Column="1" Content="REMOVE" Click="RemoveArchitect_Click"
+                            Padding="9,3" Margin="6,2,2,2" FontSize="9"/>
                   </Grid>
                 </DataTemplate>
               </ListBox.ItemTemplate>
@@ -144,11 +154,20 @@
           </StackPanel>
         </Border>
 
-        <Expander Header="APPROVED COLLECTION" FontWeight="Bold" FontSize="12" Margin="0,0,0,10" Expanded="Collection_Expanded">
+        <Expander Header="APPROVED COLLECTION" FontWeight="Bold" FontSize="12" Margin="0,0,0,10"
+                  Expanded="Collection_Expanded" AllowDrop="True"
+                  PreviewDragOver="Collection_DragOver" Drop="Collection_Drop">
           <Border BorderBrush="#22171717" BorderThickness="1" Padding="14" Margin="0,8,0,0">
             <Grid>
-              <Grid.RowDefinitions><RowDefinition/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+              <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+              <Grid Margin="0,0,0,9">
+                <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <TextBlock Text="Drag images here or import them from your computer."
+                           VerticalAlignment="Center" Opacity=".58"/>
+                <Button Grid.Column="1" Content="IMPORT IMAGES" Click="ImportImages_Click" Margin="8,0,0,0"/>
+              </Grid>
               <ListBox x:Name="ApprovedList" MinHeight="150" MaxHeight="330"
+                       Grid.Row="1"
                        SelectionChanged="ApprovedList_SelectionChanged"
                        ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                 <ListBox.ItemsPanel>
@@ -169,7 +188,7 @@
                   </DataTemplate>
                 </ListBox.ItemTemplate>
               </ListBox>
-              <Grid Grid.Row="1" Margin="0,9,0,0">
+              <Grid Grid.Row="2" Margin="0,9,0,0">
                 <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                 <TextBlock x:Name="ApprovedDetails" VerticalAlignment="Center" Opacity=".62" TextWrapping="Wrap"/>
                 <StackPanel Grid.Column="1" Orientation="Horizontal">

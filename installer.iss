@@ -1,5 +1,5 @@
 #define MyAppName "Archipaper"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.1.0"
 #define MyAppPublisher "Archipaper"
 #define MyAppExeName "Archipaper.exe"
 

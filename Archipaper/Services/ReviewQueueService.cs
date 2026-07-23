@@ -41,23 +41,22 @@ public sealed class ReviewQueueService : IDisposable
         foreach (var request in requests)
         {
             var candidates = new List<OnlineCandidate>();
-            var regularLimit = request.IsBoosted ? 16 : 8;
             if (settings.SearchWikimedia)
             {
-                try { candidates.AddRange(await _wikimedia.SearchAsync(request, regularLimit, token)); }
+                try { candidates.AddRange(await _wikimedia.SearchAsync(request, 10, token)); }
                 catch (OperationCanceledException) { throw; }
                 catch (Exception ex) { AppLog.Error(ex); }
             }
             if (settings.SearchOpenverse)
             {
-                try { candidates.AddRange(await _openverse.SearchAsync(request, request.IsBoosted ? 20 : 10, token)); }
+                try { candidates.AddRange(await _openverse.SearchAsync(request, 10, token)); }
                 catch (OperationCanceledException) { throw; }
                 catch (Exception ex) { AppLog.Error(ex); }
             }
             if (settings.SearchLibraryOfCongress
                 && request.Category.Equals("Drawings", StringComparison.OrdinalIgnoreCase))
             {
-                try { candidates.AddRange(await _libraryOfCongress.SearchAsync(request, request.IsBoosted ? 15 : 8, token)); }
+                try { candidates.AddRange(await _libraryOfCongress.SearchAsync(request, 10, token)); }
                 catch (OperationCanceledException) { throw; }
                 catch (Exception ex) { AppLog.Error(ex); }
             }
@@ -88,35 +87,70 @@ public sealed class ReviewQueueService : IDisposable
             .Where(x => !string.IsNullOrWhiteSpace(x))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
-        var boosted = settings.BoostedArchitects.ToHashSet(StringComparer.OrdinalIgnoreCase);
         var requests = new List<DiscoveryRequest>();
 
         foreach (var architect in architects)
         {
             var category = categories[_random.Next(categories.Count)];
-            var isBoosted = boosted.Contains(architect);
-            requests.Add(new DiscoveryRequest(architect, category, isBoosted, settings.StrictArchitectSearch));
-            if (isBoosted && categories.Count > 1)
-            {
-                var secondCategory = categories.Where(x => !x.Equals(category, StringComparison.OrdinalIgnoreCase))
-                    .OrderBy(_ => _random.Next()).First();
-                requests.Add(new DiscoveryRequest(architect, secondCategory, true, settings.StrictArchitectSearch));
-            }
+            requests.Add(new DiscoveryRequest(architect, category, settings.StrictArchitectSearch));
         }
 
         if (!settings.StrictArchitectSearch || architects.Count == 0)
         {
             foreach (var category in categories)
-                requests.Add(new DiscoveryRequest("", category, false, false));
+                requests.Add(new DiscoveryRequest("", category, false));
         }
 
         if (requests.Count == 0)
-            requests.Add(new DiscoveryRequest("", "Buildings", false, false));
+            requests.Add(new DiscoveryRequest("", "Buildings", false));
 
         return requests
             .OrderBy(_ => _random.Next())
             .Take(12)
             .ToList();
+    }
+
+    public async Task<int> ImportLocalFilesAsync(IEnumerable<string> filePaths)
+    {
+        var supported = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            { ".jpg", ".jpeg", ".png", ".bmp" };
+        var knownIds = _approved.Select(x => x.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var imported = 0;
+
+        foreach (var sourcePath in filePaths.Where(File.Exists))
+        {
+            var extension = Path.GetExtension(sourcePath);
+            if (!supported.Contains(extension)) continue;
+
+            string hash;
+            using (var stream = File.OpenRead(sourcePath))
+            using (var sha = SHA256.Create())
+                hash = Convert.ToHexString(sha.ComputeHash(stream)).ToLowerInvariant();
+
+            var id = "import:" + hash;
+            if (!knownIds.Add(id)) continue;
+
+            var destination = Path.Combine(AppPaths.Approved, SafeName(id, extension.ToLowerInvariant()));
+            if (!string.Equals(Path.GetFullPath(sourcePath), Path.GetFullPath(destination), StringComparison.OrdinalIgnoreCase))
+                File.Copy(sourcePath, destination, false);
+
+            var title = Path.GetFileNameWithoutExtension(sourcePath);
+            _approved.Add(new ApprovedImageMetadata
+            {
+                Id = id,
+                FilePath = destination,
+                Title = title,
+                ProjectName = title,
+                SourceName = "Imported collection",
+                License = "User-provided image",
+                ApprovedAt = DateTimeOffset.Now
+            });
+            imported++;
+        }
+
+        if (imported > 0)
+            await _store.SaveAsync(AppPaths.ApprovedMetadata, _approved);
+        return imported;
     }
 
     public async Task<bool> ApproveAsync(OnlineCandidate candidate, CancellationToken token)
