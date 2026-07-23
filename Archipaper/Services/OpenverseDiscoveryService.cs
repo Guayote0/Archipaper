@@ -12,13 +12,13 @@ public sealed class OpenverseDiscoveryService : IDisposable
     public OpenverseDiscoveryService()
     {
         _http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
-        _http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("Archipaper", "0.8"));
+        _http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("Archipaper", "1.0"));
         _http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("(desktop-wallpaper-app)"));
     }
 
-    public async Task<IReadOnlyList<OnlineCandidate>> SearchAsync(string subject, int limit, CancellationToken token)
+    public async Task<IReadOnlyList<OnlineCandidate>> SearchAsync(DiscoveryRequest request, int limit, CancellationToken token)
     {
-        var query = $"{subject} architecture";
+        var query = request.QueryText;
         var url = Api + "?q=" + Uri.EscapeDataString(query)
             + "&page_size=" + Math.Clamp(limit, 1, 20)
             + "&mature=false";
@@ -51,15 +51,15 @@ public sealed class OpenverseDiscoveryService : IDisposable
                     || string.IsNullOrWhiteSpace(sourcePage) || string.IsNullOrWhiteSpace(license)) continue;
 
                 var title = Value(item, "title");
-                if (string.IsNullOrWhiteSpace(title)) title = subject;
-                var architect = "";
+                if (string.IsNullOrWhiteSpace(title)) title = request.DisplayLabel;
+                var architect = request.Architect;
                 results.Add(new OnlineCandidate
                 {
                     Id = "openverse:" + Value(item, "id"),
                     DiscoveryProvider = "openverse",
                     SourceName = "Openverse · " + DisplaySource(source, provider),
                     Title = title,
-                    ArchitectOrCategory = subject,
+                    ArchitectOrCategory = request.DisplayLabel,
                     Architect = architect,
                     ProjectName = ArchitectureMetadata.CleanProjectName(title, architect),
                     Artist = Value(item, "creator") is { Length: > 0 } creator ? creator : "Unknown contributor",

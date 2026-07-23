@@ -13,13 +13,13 @@ public sealed class WikimediaDiscoveryService : IDisposable
     public WikimediaDiscoveryService()
     {
         _http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
-        _http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("Archipaper", "0.8"));
+        _http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("Archipaper", "1.0"));
         _http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("(desktop-wallpaper-app)"));
     }
 
-    public async Task<IReadOnlyList<OnlineCandidate>> SearchAsync(string subject, int limit, CancellationToken token)
+    public async Task<IReadOnlyList<OnlineCandidate>> SearchAsync(DiscoveryRequest request, int limit, CancellationToken token)
     {
-        var search = $"{subject} architecture photograph filetype:bitmap";
+        var search = request.QueryText + " filetype:bitmap";
         var url = Api + "?action=query&generator=search&gsrnamespace=6&gsrlimit=" + limit
             + "&gsrsearch=" + Uri.EscapeDataString(search)
             + "&prop=imageinfo&iiprop=url|size|mime|extmetadata&iiurlwidth=1200&format=json&formatversion=2&origin=*";
@@ -47,16 +47,15 @@ public sealed class WikimediaDiscoveryService : IDisposable
                 if (string.IsNullOrWhiteSpace(license)) continue;
 
                 var title = Value(page, "title").Replace("File:", "", StringComparison.OrdinalIgnoreCase);
-                var architect = "";
                 results.Add(new OnlineCandidate
                 {
                     Id = page.GetProperty("pageid").GetInt64().ToString(),
                     DiscoveryProvider = "wikimedia",
                     SourceName = "Wikimedia Commons",
                     Title = title,
-                    ArchitectOrCategory = subject,
-                    Architect = architect,
-                    ProjectName = ArchitectureMetadata.CleanProjectName(title, architect),
+                    ArchitectOrCategory = request.DisplayLabel,
+                    Architect = request.Architect,
+                    ProjectName = ArchitectureMetadata.CleanProjectName(title, request.Architect),
                     Artist = Clean(Meta(metadata, "Artist")),
                     License = Clean(license),
                     LicenseUrl = Clean(Meta(metadata, "LicenseUrl")),

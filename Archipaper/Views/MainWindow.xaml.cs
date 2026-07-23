@@ -2,7 +2,11 @@ using System.Windows;
 using System.Windows.Controls;
 using Archipaper.Services;
 using Archipaper.Models;
+using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Globalization;
+using System.Windows.Data;
+using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Forms = System.Windows.Forms;
 
@@ -13,6 +17,7 @@ public partial class MainWindow : Window
     private readonly RotationService _rotation;
     private readonly Func<Task> _save;
     private readonly ReviewQueueService _reviewQueue;
+    private readonly ObservableCollection<ArchitectPreferenceItem> _architects = [];
     private OnlineCandidate? _candidate;
     private CancellationTokenSource? _onlineCts;
     private bool _allowClose;
@@ -46,6 +51,9 @@ public partial class MainWindow : Window
     {
         var settings = _rotation.Settings;
         FolderText.Text = settings.LocalImageFolder;
+        WallpaperSourceCombo.SelectedItem = WallpaperSourceCombo.Items.Cast<ComboBoxItem>()
+            .FirstOrDefault(x => x.Tag?.ToString() == settings.WallpaperSourceMode)
+            ?? WallpaperSourceCombo.Items[2];
         AutomaticCheck.IsChecked = settings.RotateAutomatically;
         DifferentCheck.IsChecked = settings.UseDifferentImagePerMonitor;
         RecentCheck.IsChecked = settings.AvoidRecentImages;
@@ -58,9 +66,25 @@ public partial class MainWindow : Window
         DetailsCategory.IsChecked = settings.EnabledCategories.Contains("Details");
         DrawingsCategory.IsChecked = settings.EnabledCategories.Contains("Drawings");
         ModelsCategory.IsChecked = settings.EnabledCategories.Contains("Models");
-        ParametricCategory.IsChecked = settings.EnabledCategories.Contains("Parametric Architecture");
-        ArchitectsText.Text = string.Join(", ", settings.PreferredArchitects);
-        BoostedArchitectsText.Text = string.Join(", ", settings.BoostedArchitects);
+        StrictArchitectCheck.IsChecked = settings.StrictArchitectSearch;
+        var names = settings.AvailableArchitects
+            .Concat(settings.PreferredArchitects)
+            .Concat(settings.BoostedArchitects)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(x => x)
+            .ToList();
+        _architects.Clear();
+        foreach (var name in names)
+        {
+            _architects.Add(new ArchitectPreferenceItem
+            {
+                Name = name,
+                IsEnabled = settings.PreferredArchitects.Contains(name, StringComparer.OrdinalIgnoreCase),
+                IsBoosted = settings.BoostedArchitects.Contains(name, StringComparer.OrdinalIgnoreCase)
+            });
+        }
+        ArchitectList.ItemsSource = _architects;
         IntervalCombo.SelectedItem = IntervalCombo.Items.Cast<ComboBoxItem>()
             .FirstOrDefault(x => x.Tag?.ToString() == settings.RotationMinutes.ToString()) ?? IntervalCombo.Items[2];
     }
@@ -71,6 +95,9 @@ public partial class MainWindow : Window
     {
         var settings = _rotation.Settings;
         settings.LocalImageFolder = FolderText.Text.Trim();
+        settings.WallpaperSourceMode = WallpaperSourceCombo.SelectedItem is ComboBoxItem sourceItem
+            ? sourceItem.Tag?.ToString() ?? AppSettings.ApprovedAndLocal
+            : AppSettings.ApprovedAndLocal;
         settings.RotateAutomatically = AutomaticCheck.IsChecked == true;
         settings.UseDifferentImagePerMonitor = DifferentCheck.IsChecked == true;
         settings.AvoidRecentImages = RecentCheck.IsChecked == true;
@@ -78,14 +105,16 @@ public partial class MainWindow : Window
         settings.SearchWikimedia = WikimediaSourceCheck.IsChecked == true;
         settings.SearchOpenverse = OpenverseSourceCheck.IsChecked == true;
         settings.SearchLibraryOfCongress = LibraryOfCongressSourceCheck.IsChecked == true;
+        settings.StrictArchitectSearch = StrictArchitectCheck.IsChecked == true;
         settings.EnabledCategories = new[]
         {
             ("Buildings", BuildingsCategory), ("Interiors", InteriorsCategory),
             ("Details", DetailsCategory), ("Drawings", DrawingsCategory),
-            ("Models", ModelsCategory), ("Parametric Architecture", ParametricCategory)
+            ("Models", ModelsCategory)
         }.Where(x => x.Item2.IsChecked == true).Select(x => x.Item1).ToList();
-        settings.PreferredArchitects = ParseList(ArchitectsText.Text);
-        settings.BoostedArchitects = ParseList(BoostedArchitectsText.Text);
+        settings.AvailableArchitects = _architects.Select(x => x.Name).ToList();
+        settings.PreferredArchitects = _architects.Where(x => x.IsEnabled).Select(x => x.Name).ToList();
+        settings.BoostedArchitects = _architects.Where(x => x.IsBoosted).Select(x => x.Name).ToList();
         if (IntervalCombo.SelectedItem is ComboBoxItem item && int.TryParse(item.Tag?.ToString(), out var minutes))
             settings.RotationMinutes = minutes;
         await _save();
@@ -101,6 +130,28 @@ public partial class MainWindow : Window
             SelectedPath = Directory.Exists(FolderText.Text) ? FolderText.Text : ""
         };
         if (dialog.ShowDialog() == Forms.DialogResult.OK) FolderText.Text = dialog.SelectedPath;
+    }
+
+    private void AddArchitect_Click(object sender, RoutedEventArgs e)
+    {
+        var name = NewArchitectText.Text.Trim();
+        if (name.Length == 0) return;
+        var existing = _architects.FirstOrDefault(x => x.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+        if (existing is not null)
+        {
+            existing.IsEnabled = true;
+            ArchitectList.Items.Refresh();
+            ArchitectList.ScrollIntoView(existing);
+            StatusText.Text = $"{existing.Name} is selected again.";
+        }
+        else
+        {
+            var item = new ArchitectPreferenceItem { Name = name, IsEnabled = true };
+            _architects.Add(item);
+            ArchitectList.ScrollIntoView(item);
+            StatusText.Text = $"{name} added to preferred architects.";
+        }
+        NewArchitectText.Clear();
     }
 
     private async void ChangeNow_Click(object sender, RoutedEventArgs e)
@@ -210,10 +261,6 @@ public partial class MainWindow : Window
         catch (Exception ex) { AppLog.Error(ex); CandidateImage.Source = null; }
     }
 
-    private static List<string> ParseList(string value) => value
-        .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-        .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-
     private void Collection_Expanded(object sender, RoutedEventArgs e) => RefreshApprovedCollection();
 
     private void RefreshApprovedCollection()
@@ -259,10 +306,30 @@ public partial class MainWindow : Window
         QueueStatus.Text = "Removed from rotation. The image file was retained.";
     }
 
-    private void History_Expanded(object sender, RoutedEventArgs e)
+}
+
+public sealed class FilePathToImageConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
     {
-        HistoryList.ItemsSource = _rotation.History.Take(30)
-            .Select(x => $"{x.AppliedAt.LocalDateTime:g}   ·   {Path.GetFileNameWithoutExtension(x.FilePath)}")
-            .ToList();
+        try
+        {
+            if (value is not string path || !File.Exists(path)) return DependencyProperty.UnsetValue;
+            var bitmap = new BitmapImage();
+            bitmap.BeginInit();
+            bitmap.CacheOption = BitmapCacheOption.OnLoad;
+            bitmap.DecodePixelWidth = 300;
+            bitmap.UriSource = new Uri(path, UriKind.Absolute);
+            bitmap.EndInit();
+            bitmap.Freeze();
+            return bitmap;
+        }
+        catch
+        {
+            return DependencyProperty.UnsetValue;
+        }
     }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) =>
+        Binding.DoNothing;
 }

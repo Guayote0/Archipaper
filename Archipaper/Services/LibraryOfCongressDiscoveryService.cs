@@ -13,13 +13,13 @@ public sealed class LibraryOfCongressDiscoveryService : IDisposable
     public LibraryOfCongressDiscoveryService()
     {
         _http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
-        _http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("Archipaper", "0.8"));
+        _http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("Archipaper", "1.0"));
         _http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("(desktop-wallpaper-app)"));
     }
 
-    public async Task<IReadOnlyList<OnlineCandidate>> SearchAsync(string subject, int limit, CancellationToken token)
+    public async Task<IReadOnlyList<OnlineCandidate>> SearchAsync(DiscoveryRequest request, int limit, CancellationToken token)
     {
-        var query = QueryFor(subject);
+        var query = request.QueryText;
         var url = PhotosApi + "?fo=json&c=" + Math.Clamp(limit, 1, 15)
             + "&fa=online-format:image"
             + "&q=" + Uri.EscapeDataString(query);
@@ -35,10 +35,10 @@ public sealed class LibraryOfCongressDiscoveryService : IDisposable
         {
             try
             {
-                var candidate = CandidateFromItem(item, subject, allowDetailFetch: false);
+                var candidate = CandidateFromItem(item, request, allowDetailFetch: false);
                 if (candidate is null && Uri.TryCreate(Value(item, "url"), UriKind.Absolute, out var itemUri))
                 {
-                    candidate = await CandidateFromDetailAsync(itemUri, subject, token);
+                    candidate = await CandidateFromDetailAsync(itemUri, request, token);
                 }
 
                 if (candidate is not null) results.Add(candidate);
@@ -58,7 +58,7 @@ public sealed class LibraryOfCongressDiscoveryService : IDisposable
         await source.CopyToAsync(target, token);
     }
 
-    private async Task<OnlineCandidate?> CandidateFromDetailAsync(Uri itemUri, string subject, CancellationToken token)
+    private async Task<OnlineCandidate?> CandidateFromDetailAsync(Uri itemUri, DiscoveryRequest request, CancellationToken token)
     {
         var builder = new UriBuilder(itemUri) { Query = "fo=json" };
         using var response = await _http.GetAsync(builder.Uri, token);
@@ -66,17 +66,17 @@ public sealed class LibraryOfCongressDiscoveryService : IDisposable
         await using var stream = await response.Content.ReadAsStreamAsync(token);
         using var json = await JsonDocument.ParseAsync(stream, cancellationToken: token);
         return json.RootElement.TryGetProperty("item", out var item)
-            ? CandidateFromItem(item, subject, allowDetailFetch: true)
+            ? CandidateFromItem(item, request, allowDetailFetch: true)
             : null;
     }
 
-    private static OnlineCandidate? CandidateFromItem(JsonElement item, string subject, bool allowDetailFetch)
+    private static OnlineCandidate? CandidateFromItem(JsonElement item, DiscoveryRequest request, bool allowDetailFetch)
     {
         var image = BestImage(item);
         if (string.IsNullOrWhiteSpace(image.Url)) return null;
 
         var title = Value(item, "title");
-        if (string.IsNullOrWhiteSpace(title)) title = subject;
+        if (string.IsNullOrWhiteSpace(title)) title = request.DisplayLabel;
 
         var rights = FirstNonBlank(Value(item, "rights_advisory"), Value(item, "rights_information"), NestedValue(item, "item", "rights_information"));
         if (string.IsNullOrWhiteSpace(rights)) rights = "See Library of Congress source page";
@@ -97,9 +97,9 @@ public sealed class LibraryOfCongressDiscoveryService : IDisposable
             DiscoveryProvider = "loc",
             SourceName = "Library of Congress · Drawings",
             Title = title,
-            ArchitectOrCategory = subject + " drawings",
-            Architect = "",
-            ProjectName = ArchitectureMetadata.CleanProjectName(title, ""),
+            ArchitectOrCategory = request.DisplayLabel,
+            Architect = request.Architect,
+            ProjectName = ArchitectureMetadata.CleanProjectName(title, request.Architect),
             Artist = string.IsNullOrWhiteSpace(creator) ? "Library of Congress contributor" : creator,
             License = rights,
             LicenseUrl = "https://www.loc.gov/rr/print/res/rights.html",
@@ -175,14 +175,6 @@ public sealed class LibraryOfCongressDiscoveryService : IDisposable
         if (url.EndsWith("r.jpg", StringComparison.OrdinalIgnoreCase)) return 2000;
         if (url.Contains("service_medium", StringComparison.OrdinalIgnoreCase)) return 1000;
         return url.Contains("_150px", StringComparison.OrdinalIgnoreCase) ? 1 : 100;
-    }
-
-    private static string QueryFor(string subject)
-    {
-        var lower = subject.ToLowerInvariant();
-        if (lower.Contains("drawing") || lower.Contains("sketch"))
-            return "architectural drawing sketch";
-        return subject + " architectural drawing sketch";
     }
 
     private static string Creator(JsonElement item)

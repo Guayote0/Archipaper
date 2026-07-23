@@ -1,0 +1,24 @@
+ARCHIPAPER v1.0 UPDATE
+
+WHAT CHANGED
+- Wallpaper rotation source is now explicit: approved collection, chosen folder, or both.
+- Approved images now appear as thumbnail cards.
+- Recent Wallpaper History was removed from the interface.
+- Parametric Architecture was removed from categories.
+- Preferred architects are a persistent checklist. Unchecking a name does not remove it.
+- New architects can be added at any time.
+- "Only search for the checked architects" uses quoted exact-name searches and does not add broader category-only searches.
+- "Feature more often" now adds searches and increases the number of requested results.
+- Automatic rotation uses the Windows UI dispatcher.
+- The uploaded Archipaper logo is used in the window and application icon.
+
+INSTALL
+1. Extract this ZIP.
+2. Upload the extracted contents to the main branch of Guayote0/Archipaper.
+3. Wait for the GitHub Actions Windows build to finish.
+4. Download the Archipaper-Windows-x64 artifact.
+5. Exit Archipaper from the notification-area tray icon.
+6. Run installer-output\Archipaper-Setup.exe.
+
+You do not need to uninstall the previous version. Your settings, approved
+images, favorites, and review queue remain under %LOCALAPPDATA%\Archipaper.

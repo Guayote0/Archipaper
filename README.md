@@ -2,13 +2,14 @@
 
 Archipaper is a native Windows wallpaper application designed for architecture imagery and mixed-orientation, multi-monitor setups.
 
-## Current build (0.8)
+## Current build (1.0)
 
 - Native Windows 10/11 desktop application
 - Independent wallpaper assignment per monitor
 - Automatic landscape/portrait image matching
 - Hourly rotation by default, with selectable intervals
 - Local high-resolution JPG, PNG, and BMP image collections
+- Explicit rotation source: approved collection, chosen folder, or both
 - Recent-image avoidance
 - Preferences and history saved safely in `%LOCALAPPDATA%\Archipaper`
 - Notification-area controls and optional Windows startup
@@ -25,17 +26,17 @@ Archipaper is a native Windows wallpaper application designed for architecture i
 - Smaller, more discreet wallpaper captions
 - Main-window credit for Iván Castro
 - Source, contributor, license, and license-link preservation
-- Selectable architecture categories
-- Weighted discovery for Steven Holl and Enric Miralles
-- Editable preferred and boosted architect lists
-- Approved-image library with favorites and source links
+- Exact-name architect-only search mode
+- Selectable architecture categories without the former Parametric Architecture category
+- Reliable weighted discovery that performs additional searches and requests more results for featured architects
+- Persistent preferred-architect checklist with add-more support
+- Approved-image thumbnail gallery with favorites and source links
 - Recoverable removal from wallpaper rotation
-- Recent wallpaper history
 - Active monitor resolution/orientation summary
 - Single-instance protection and silent background startup
 - Branded executable icon and optional per-user installer
 
-The selected architects are built in, with additional discovery weighting for Steven Holl and Enric Miralles. Online discovery and review are isolated from the wallpaper engine, so local and previously approved wallpapers continue to rotate when the network is unavailable.
+The selected architects are built in, with additional discovery weighting for Steven Holl and Enric Miralles. Names remain available after they are unchecked and can be selected again later. Online discovery and review are isolated from the wallpaper engine, so local and previously approved wallpapers continue to rotate when the network is unavailable.
 
 ## Build on Windows
 

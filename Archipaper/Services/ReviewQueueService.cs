@@ -35,34 +35,29 @@ public sealed class ReviewQueueService : IDisposable
 
     public async Task<int> DiscoverAsync(AppSettings settings, CancellationToken token)
     {
-        var choices = new List<string>();
-        choices.AddRange(settings.EnabledCategories);
-        choices.AddRange(settings.PreferredArchitects);
-        choices.AddRange(settings.BoostedArchitects);
-        choices.AddRange(settings.BoostedArchitects);
-        if (choices.Count == 0) choices.Add("contemporary architecture");
-
-        var subjects = choices.OrderBy(_ => _random.Next()).Distinct().Take(4).ToList();
+        var requests = BuildRequests(settings);
         var known = _queue.Select(x => x.Id).Concat(_approved.Select(x => x.Id)).ToHashSet();
         var added = 0;
-        foreach (var subject in subjects)
+        foreach (var request in requests)
         {
             var candidates = new List<OnlineCandidate>();
+            var regularLimit = request.IsBoosted ? 16 : 8;
             if (settings.SearchWikimedia)
             {
-                try { candidates.AddRange(await _wikimedia.SearchAsync(subject, 8, token)); }
+                try { candidates.AddRange(await _wikimedia.SearchAsync(request, regularLimit, token)); }
                 catch (OperationCanceledException) { throw; }
                 catch (Exception ex) { AppLog.Error(ex); }
             }
             if (settings.SearchOpenverse)
             {
-                try { candidates.AddRange(await _openverse.SearchAsync(subject, 15, token)); }
+                try { candidates.AddRange(await _openverse.SearchAsync(request, request.IsBoosted ? 20 : 10, token)); }
                 catch (OperationCanceledException) { throw; }
                 catch (Exception ex) { AppLog.Error(ex); }
             }
-            if (settings.SearchLibraryOfCongress)
+            if (settings.SearchLibraryOfCongress
+                && request.Category.Equals("Drawings", StringComparison.OrdinalIgnoreCase))
             {
-                try { candidates.AddRange(await _libraryOfCongress.SearchAsync(subject, 8, token)); }
+                try { candidates.AddRange(await _libraryOfCongress.SearchAsync(request, request.IsBoosted ? 15 : 8, token)); }
                 catch (OperationCanceledException) { throw; }
                 catch (Exception ex) { AppLog.Error(ex); }
             }
@@ -79,6 +74,49 @@ public sealed class ReviewQueueService : IDisposable
         }
         await SaveQueueAsync();
         return added;
+    }
+
+    private IReadOnlyList<DiscoveryRequest> BuildRequests(AppSettings settings)
+    {
+        var categories = settings.EnabledCategories
+            .Where(x => x is "Buildings" or "Interiors" or "Details" or "Drawings" or "Models")
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (categories.Count == 0) categories.Add("Buildings");
+
+        var architects = settings.PreferredArchitects
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var boosted = settings.BoostedArchitects.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var requests = new List<DiscoveryRequest>();
+
+        foreach (var architect in architects)
+        {
+            var category = categories[_random.Next(categories.Count)];
+            var isBoosted = boosted.Contains(architect);
+            requests.Add(new DiscoveryRequest(architect, category, isBoosted, settings.StrictArchitectSearch));
+            if (isBoosted && categories.Count > 1)
+            {
+                var secondCategory = categories.Where(x => !x.Equals(category, StringComparison.OrdinalIgnoreCase))
+                    .OrderBy(_ => _random.Next()).First();
+                requests.Add(new DiscoveryRequest(architect, secondCategory, true, settings.StrictArchitectSearch));
+            }
+        }
+
+        if (!settings.StrictArchitectSearch || architects.Count == 0)
+        {
+            foreach (var category in categories)
+                requests.Add(new DiscoveryRequest("", category, false, false));
+        }
+
+        if (requests.Count == 0)
+            requests.Add(new DiscoveryRequest("", "Buildings", false, false));
+
+        return requests
+            .OrderBy(_ => _random.Next())
+            .Take(12)
+            .ToList();
     }
 
     public async Task<bool> ApproveAsync(OnlineCandidate candidate, CancellationToken token)

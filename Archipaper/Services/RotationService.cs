@@ -1,4 +1,5 @@
 using Archipaper.Models;
+using System.Windows.Threading;
 
 namespace Archipaper.Services;
 
@@ -10,7 +11,7 @@ public sealed class RotationService : IDisposable
     private readonly JsonStore _store;
     private readonly SemaphoreSlim _rotationLock = new(1, 1);
     private readonly Random _random = new();
-    private System.Threading.Timer? _timer;
+    private DispatcherTimer? _timer;
     private List<HistoryEntry> _history;
 
     public AppSettings Settings { get; }
@@ -29,10 +30,13 @@ public sealed class RotationService : IDisposable
 
     public void StartTimer()
     {
-        _timer?.Dispose();
+        _timer?.Stop();
+        _timer = null;
         if (!Settings.RotateAutomatically) return;
         var interval = TimeSpan.FromMinutes(Math.Clamp(Settings.RotationMinutes, 5, 1440));
-        _timer = new System.Threading.Timer(async _ => await RotateAsync(), null, interval, interval);
+        _timer = new DispatcherTimer(DispatcherPriority.Background) { Interval = interval };
+        _timer.Tick += async (_, _) => await RotateAsync();
+        _timer.Start();
     }
 
     public async Task RotateAsync()
@@ -40,8 +44,10 @@ public sealed class RotationService : IDisposable
         if (!await _rotationLock.WaitAsync(0)) return;
         try
         {
-            var localImages = _source.Scan(Settings.LocalImageFolder);
-            var approvedImages = _source.Scan(AppPaths.Approved);
+            var includeLocal = Settings.WallpaperSourceMode is AppSettings.LocalOnly or AppSettings.ApprovedAndLocal;
+            var includeApproved = Settings.WallpaperSourceMode is AppSettings.ApprovedOnly or AppSettings.ApprovedAndLocal;
+            var localImages = includeLocal ? _source.Scan(Settings.LocalImageFolder) : [];
+            var approvedImages = includeApproved ? _source.Scan(AppPaths.Approved) : [];
             var approvedMetadata = await _store.LoadAsync(AppPaths.ApprovedMetadata, () => new List<ApprovedImageMetadata>());
             var favoritePaths = approvedMetadata.Where(x => x.IsAvailable && x.IsFavorite)
                 .Select(x => x.FilePath).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -49,7 +55,13 @@ public sealed class RotationService : IDisposable
             images.AddRange(approvedImages.Where(x => favoritePaths.Contains(x.FilePath)));
             if (images.Count == 0)
             {
-                StatusChanged?.Invoke(this, "Choose a local folder or approve an online image to begin.");
+                var message = Settings.WallpaperSourceMode switch
+                {
+                    AppSettings.ApprovedOnly => "Approve an online image to begin.",
+                    AppSettings.LocalOnly => "Choose a local image folder to begin.",
+                    _ => "Choose a local folder or approve an online image to begin."
+                };
+                StatusChanged?.Invoke(this, message);
                 return;
             }
 
@@ -104,7 +116,7 @@ public sealed class RotationService : IDisposable
 
     public void Dispose()
     {
-        _timer?.Dispose();
+        _timer?.Stop();
         _desktop.Dispose();
         _rotationLock.Dispose();
     }
