@@ -13,38 +13,43 @@ public sealed class LibraryOfCongressDiscoveryService : IDisposable
     public LibraryOfCongressDiscoveryService()
     {
         _http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
-        _http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("Archipaper", "1.1"));
+        _http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("Archipaper", "1.2"));
         _http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("(desktop-wallpaper-app)"));
     }
 
     public async Task<IReadOnlyList<OnlineCandidate>> SearchAsync(DiscoveryRequest request, int limit, CancellationToken token)
     {
-        var query = request.QueryText;
-        var url = PhotosApi + "?fo=json&c=" + Math.Clamp(limit, 1, 15)
-            + "&fa=online-format:image"
-            + "&q=" + Uri.EscapeDataString(query);
-
-        using var response = await _http.GetAsync(url, token);
-        response.EnsureSuccessStatusCode();
-        await using var stream = await response.Content.ReadAsStreamAsync(token);
-        using var json = await JsonDocument.ParseAsync(stream, cancellationToken: token);
-        if (!json.RootElement.TryGetProperty("results", out var items)) return [];
-
         var results = new List<OnlineCandidate>();
-        foreach (var item in items.EnumerateArray())
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var query in request.QueryVariants)
         {
-            try
-            {
-                var candidate = CandidateFromItem(item, request, allowDetailFetch: false);
-                if (candidate is null && Uri.TryCreate(Value(item, "url"), UriKind.Absolute, out var itemUri))
-                {
-                    candidate = await CandidateFromDetailAsync(itemUri, request, token);
-                }
+            var url = PhotosApi + "?fo=json&c=" + Math.Clamp(limit, 1, 25)
+                + "&fa=online-format:image"
+                + "&q=" + Uri.EscapeDataString(query);
 
-                if (candidate is not null) results.Add(candidate);
+            using var response = await _http.GetAsync(url, token);
+            response.EnsureSuccessStatusCode();
+            await using var stream = await response.Content.ReadAsStreamAsync(token);
+            using var json = await JsonDocument.ParseAsync(stream, cancellationToken: token);
+            if (!json.RootElement.TryGetProperty("results", out var items)) continue;
+
+            foreach (var item in items.EnumerateArray())
+            {
+                try
+                {
+                    var candidate = CandidateFromItem(item, request, allowDetailFetch: false);
+                    if (candidate is null && Uri.TryCreate(Value(item, "url"), UriKind.Absolute, out var itemUri))
+                    {
+                        candidate = await CandidateFromDetailAsync(itemUri, request, token);
+                    }
+
+                    if (candidate is null || !seen.Add(candidate.Id)) continue;
+                    results.Add(candidate);
+                    if (results.Count >= limit) return results;
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex) { AppLog.Error(ex); }
             }
-            catch (OperationCanceledException) { throw; }
-            catch (Exception ex) { AppLog.Error(ex); }
         }
         return results;
     }

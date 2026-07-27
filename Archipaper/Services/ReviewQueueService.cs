@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Globalization;
 using Archipaper.Models;
 
 namespace Archipaper.Services;
@@ -10,7 +11,6 @@ public sealed class ReviewQueueService : IDisposable
     private readonly WikimediaDiscoveryService _wikimedia = new();
     private readonly OpenverseDiscoveryService _openverse = new();
     private readonly LibraryOfCongressDiscoveryService _libraryOfCongress = new();
-    private readonly Random _random = new();
     private List<OnlineCandidate> _queue;
     private List<ApprovedImageMetadata> _approved;
 
@@ -38,38 +38,42 @@ public sealed class ReviewQueueService : IDisposable
         var requests = BuildRequests(settings);
         var known = _queue.Select(x => x.Id).Concat(_approved.Select(x => x.Id)).ToHashSet();
         var added = 0;
+        const int targetAdditions = 24;
         foreach (var request in requests)
         {
             var candidates = new List<OnlineCandidate>();
             if (settings.SearchWikimedia)
             {
-                try { candidates.AddRange(await _wikimedia.SearchAsync(request, 10, token)); }
+                try { candidates.AddRange(await _wikimedia.SearchAsync(request, 25, token)); }
                 catch (OperationCanceledException) { throw; }
                 catch (Exception ex) { AppLog.Error(ex); }
             }
             if (settings.SearchOpenverse)
             {
-                try { candidates.AddRange(await _openverse.SearchAsync(request, 10, token)); }
+                try { candidates.AddRange(await _openverse.SearchAsync(request, 25, token)); }
                 catch (OperationCanceledException) { throw; }
                 catch (Exception ex) { AppLog.Error(ex); }
             }
             if (settings.SearchLibraryOfCongress
                 && request.Category.Equals("Drawings", StringComparison.OrdinalIgnoreCase))
             {
-                try { candidates.AddRange(await _libraryOfCongress.SearchAsync(request, 10, token)); }
+                try { candidates.AddRange(await _libraryOfCongress.SearchAsync(request, 25, token)); }
                 catch (OperationCanceledException) { throw; }
                 catch (Exception ex) { AppLog.Error(ex); }
             }
 
             foreach (var candidate in candidates)
             {
+                if (!CandidateMatchesRequest(candidate, request)) continue;
                 if (!known.Add(candidate.Id)) continue;
                 candidate.PreviewFilePath = Path.Combine(AppPaths.CandidateCache, SafeName(candidate.Id, ".jpg"));
                 try { await DownloadAsync(candidate, candidate.PreviewUrl, candidate.PreviewFilePath, token); }
                 catch (Exception ex) { AppLog.Error(ex); continue; }
                 _queue.Add(candidate);
                 added++;
+                if (added >= targetAdditions) break;
             }
+            if (added >= targetAdditions) break;
         }
         await SaveQueueAsync();
         return added;
@@ -89,10 +93,10 @@ public sealed class ReviewQueueService : IDisposable
             .ToList();
         var requests = new List<DiscoveryRequest>();
 
-        foreach (var architect in architects)
+        foreach (var category in categories)
         {
-            var category = categories[_random.Next(categories.Count)];
-            requests.Add(new DiscoveryRequest(architect, category, settings.StrictArchitectSearch));
+            foreach (var architect in architects)
+                requests.Add(new DiscoveryRequest(architect, category, settings.StrictArchitectSearch));
         }
 
         if (!settings.StrictArchitectSearch || architects.Count == 0)
@@ -104,10 +108,33 @@ public sealed class ReviewQueueService : IDisposable
         if (requests.Count == 0)
             requests.Add(new DiscoveryRequest("", "Buildings", false));
 
-        return requests
-            .OrderBy(_ => _random.Next())
-            .Take(12)
+        return requests;
+    }
+
+    private static bool CandidateMatchesRequest(OnlineCandidate candidate, DiscoveryRequest request)
+    {
+        if (!request.IsStrict || string.IsNullOrWhiteSpace(request.Architect)) return true;
+
+        var haystack = NormalizeForSearch(string.Join(" ", candidate.Title, candidate.Artist,
+            candidate.Architect, candidate.ProjectName, candidate.SourcePageUrl));
+        var tokens = NormalizeForSearch(request.Architect)
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Where(x => x.Length > 2)
             .ToList();
+        return tokens.Count > 0 && tokens.All(haystack.Contains);
+    }
+
+    private static string NormalizeForSearch(string value)
+    {
+        var normalized = value.Normalize(NormalizationForm.FormD);
+        var builder = new StringBuilder(normalized.Length);
+        foreach (var ch in normalized)
+        {
+            var category = CharUnicodeInfo.GetUnicodeCategory(ch);
+            if (category == UnicodeCategory.NonSpacingMark) continue;
+            builder.Append(char.IsLetterOrDigit(ch) ? char.ToLowerInvariant(ch) : ' ');
+        }
+        return builder.ToString().Normalize(NormalizationForm.FormC);
     }
 
     public async Task<int> ImportLocalFilesAsync(IEnumerable<string> filePaths)

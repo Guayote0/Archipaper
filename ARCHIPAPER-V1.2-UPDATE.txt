@@ -1,0 +1,28 @@
+Archipaper v1.2 update
+
+This update fixes inconsistent Discover New Images behavior.
+
+What changed:
+
+- Discovery no longer depends on random request sampling.
+- The app now sweeps the selected architect/category combinations in a stable order.
+- Each provider can try category-specific fallback query phrases.
+- Discovery requests larger result batches and stops after adding up to 24 new review candidates.
+- The no-results message now distinguishes between no new images and images already waiting for review.
+- All v1.1 source/import, thumbnail, logo, and rotation controls remain included.
+
+Install/update:
+
+1. Extract this zip.
+2. Upload the extracted contents to the GitHub repository.
+3. Commit directly to main.
+4. Wait for the GitHub Action to finish.
+5. Exit Archipaper from the tray before running the new installer.
+6. Install from installer-output\Archipaper-Setup.exe.
+
+Recommended settings for testing:
+
+- Keep Openverse unchecked unless you specifically want to retry it.
+- Keep Wikimedia Commons checked.
+- Keep Library of Congress drawings checked if Drawings is selected.
+- Select one or two categories first to make the review queue easier to judge.

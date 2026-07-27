@@ -13,60 +13,67 @@ public sealed class WikimediaDiscoveryService : IDisposable
     public WikimediaDiscoveryService()
     {
         _http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
-        _http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("Archipaper", "1.1"));
+        _http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("Archipaper", "1.2"));
         _http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("(desktop-wallpaper-app)"));
     }
 
     public async Task<IReadOnlyList<OnlineCandidate>> SearchAsync(DiscoveryRequest request, int limit, CancellationToken token)
     {
-        var search = request.QueryText + " filetype:bitmap";
-        var url = Api + "?action=query&generator=search&gsrnamespace=6&gsrlimit=" + limit
-            + "&gsrsearch=" + Uri.EscapeDataString(search)
-            + "&prop=imageinfo&iiprop=url|size|mime|extmetadata&iiurlwidth=1200&format=json&formatversion=2&origin=*";
-
-        using var response = await _http.GetAsync(url, token);
-        response.EnsureSuccessStatusCode();
-        await using var stream = await response.Content.ReadAsStreamAsync(token);
-        using var json = await JsonDocument.ParseAsync(stream, cancellationToken: token);
-        if (!json.RootElement.TryGetProperty("query", out var query)
-            || !query.TryGetProperty("pages", out var pages)) return [];
-
         var results = new List<OnlineCandidate>();
-        foreach (var page in pages.EnumerateArray())
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var queryText in request.QueryVariants)
         {
-            try
-            {
-                var info = page.GetProperty("imageinfo")[0];
-                var mime = Value(info, "mime");
-                var width = info.GetProperty("width").GetInt32();
-                var height = info.GetProperty("height").GetInt32();
-                if (!mime.StartsWith("image/", StringComparison.OrdinalIgnoreCase)
-                    || Math.Min(width, height) < 1200 || Math.Max(width, height) < 1800) continue;
-                var metadata = info.GetProperty("extmetadata");
-                var license = Meta(metadata, "LicenseShortName");
-                if (string.IsNullOrWhiteSpace(license)) continue;
+            var search = queryText + " filetype:bitmap";
+            var url = Api + "?action=query&generator=search&gsrnamespace=6&gsrlimit=" + Math.Clamp(limit, 1, 50)
+                + "&gsrsearch=" + Uri.EscapeDataString(search)
+                + "&prop=imageinfo&iiprop=url|size|mime|extmetadata&iiurlwidth=1200&format=json&formatversion=2&origin=*";
 
-                var title = Value(page, "title").Replace("File:", "", StringComparison.OrdinalIgnoreCase);
-                results.Add(new OnlineCandidate
+            using var response = await _http.GetAsync(url, token);
+            response.EnsureSuccessStatusCode();
+            await using var stream = await response.Content.ReadAsStreamAsync(token);
+            using var json = await JsonDocument.ParseAsync(stream, cancellationToken: token);
+            if (!json.RootElement.TryGetProperty("query", out var apiQuery)
+                || !apiQuery.TryGetProperty("pages", out var pages)) continue;
+
+            foreach (var page in pages.EnumerateArray())
+            {
+                try
                 {
-                    Id = page.GetProperty("pageid").GetInt64().ToString(),
-                    DiscoveryProvider = "wikimedia",
-                    SourceName = "Wikimedia Commons",
-                    Title = title,
-                    ArchitectOrCategory = request.DisplayLabel,
-                    Architect = request.Architect,
-                    ProjectName = ArchitectureMetadata.CleanProjectName(title, request.Architect),
-                    Artist = Clean(Meta(metadata, "Artist")),
-                    License = Clean(license),
-                    LicenseUrl = Clean(Meta(metadata, "LicenseUrl")),
-                    SourcePageUrl = Value(info, "descriptionurl"),
-                    OriginalUrl = Value(info, "url"),
-                    PreviewUrl = Value(info, "thumburl"),
-                    Width = width,
-                    Height = height
-                });
+                    var id = page.GetProperty("pageid").GetInt64().ToString();
+                    if (!seen.Add(id)) continue;
+                    var info = page.GetProperty("imageinfo")[0];
+                    var mime = Value(info, "mime");
+                    var width = info.GetProperty("width").GetInt32();
+                    var height = info.GetProperty("height").GetInt32();
+                    if (!mime.StartsWith("image/", StringComparison.OrdinalIgnoreCase)
+                        || Math.Min(width, height) < 1200 || Math.Max(width, height) < 1800) continue;
+                    var metadata = info.GetProperty("extmetadata");
+                    var license = Meta(metadata, "LicenseShortName");
+                    if (string.IsNullOrWhiteSpace(license)) continue;
+
+                    var title = Value(page, "title").Replace("File:", "", StringComparison.OrdinalIgnoreCase);
+                    results.Add(new OnlineCandidate
+                    {
+                        Id = id,
+                        DiscoveryProvider = "wikimedia",
+                        SourceName = "Wikimedia Commons",
+                        Title = title,
+                        ArchitectOrCategory = request.DisplayLabel,
+                        Architect = request.Architect,
+                        ProjectName = ArchitectureMetadata.CleanProjectName(title, request.Architect),
+                        Artist = Clean(Meta(metadata, "Artist")),
+                        License = Clean(license),
+                        LicenseUrl = Clean(Meta(metadata, "LicenseUrl")),
+                        SourcePageUrl = Value(info, "descriptionurl"),
+                        OriginalUrl = Value(info, "url"),
+                        PreviewUrl = Value(info, "thumburl"),
+                        Width = width,
+                        Height = height
+                    });
+                    if (results.Count >= limit) return results;
+                }
+                catch (Exception ex) { AppLog.Error(ex); }
             }
-            catch (Exception ex) { AppLog.Error(ex); }
         }
         return results;
     }

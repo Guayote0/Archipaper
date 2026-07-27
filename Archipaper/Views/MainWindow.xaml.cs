@@ -260,9 +260,13 @@ public partial class MainWindow : Window
         {
             await SaveFromControlsAsync();
             var added = await _reviewQueue.DiscoverAsync(_rotation.Settings, _onlineCts.Token);
-            QueueStatus.Text = added == 0 ? "No new suitable images found. Try again later." : $"Added {added} images for review.";
             ShowNextCandidate();
             RefreshApprovedCollection();
+            QueueStatus.Text = added == 0
+                ? _reviewQueue.Pending.Count > 0
+                    ? $"No additional images found. {_reviewQueue.Pending.Count} image{(_reviewQueue.Pending.Count == 1 ? "" : "s")} still waiting for review."
+                    : "No new suitable images found. Try changing sources, categories, or architects."
+                : $"Added {added} images for review.";
         }
         catch (OperationCanceledException) { QueueStatus.Text = "Search cancelled."; }
         catch (Exception ex)

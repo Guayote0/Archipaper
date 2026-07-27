@@ -12,67 +12,73 @@ public sealed class OpenverseDiscoveryService : IDisposable
     public OpenverseDiscoveryService()
     {
         _http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
-        _http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("Archipaper", "1.1"));
+        _http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("Archipaper", "1.2"));
         _http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("(desktop-wallpaper-app)"));
     }
 
     public async Task<IReadOnlyList<OnlineCandidate>> SearchAsync(DiscoveryRequest request, int limit, CancellationToken token)
     {
-        var query = request.QueryText;
-        var url = Api + "?q=" + Uri.EscapeDataString(query)
-            + "&page_size=" + Math.Clamp(limit, 1, 20)
-            + "&mature=false";
-
-        using var response = await _http.GetAsync(url, token);
-        response.EnsureSuccessStatusCode();
-        await using var stream = await response.Content.ReadAsStreamAsync(token);
-        using var json = await JsonDocument.ParseAsync(stream, cancellationToken: token);
-        if (!json.RootElement.TryGetProperty("results", out var items)) return [];
-
         var results = new List<OnlineCandidate>();
-        foreach (var item in items.EnumerateArray())
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var query in request.QueryVariants)
         {
-            try
+            var url = Api + "?q=" + Uri.EscapeDataString(query)
+                + "&page_size=" + Math.Clamp(limit, 1, 20)
+                + "&mature=false";
+
+            using var response = await _http.GetAsync(url, token);
+            response.EnsureSuccessStatusCode();
+            await using var stream = await response.Content.ReadAsStreamAsync(token);
+            using var json = await JsonDocument.ParseAsync(stream, cancellationToken: token);
+            if (!json.RootElement.TryGetProperty("results", out var items)) continue;
+
+            foreach (var item in items.EnumerateArray())
             {
-                var source = Value(item, "source");
-                var provider = Value(item, "provider");
-                if (source.Contains("wikimedia", StringComparison.OrdinalIgnoreCase)
-                    || provider.Contains("wikimedia", StringComparison.OrdinalIgnoreCase)) continue;
-
-                var width = IntValue(item, "width");
-                var height = IntValue(item, "height");
-                if (Math.Min(width, height) < 1200 || Math.Max(width, height) < 1800) continue;
-
-                var originalUrl = Value(item, "url");
-                var previewUrl = Value(item, "thumbnail");
-                var sourcePage = Value(item, "foreign_landing_url");
-                var license = FormatLicense(Value(item, "license"), Value(item, "license_version"));
-                if (string.IsNullOrWhiteSpace(originalUrl) || string.IsNullOrWhiteSpace(previewUrl)
-                    || string.IsNullOrWhiteSpace(sourcePage) || string.IsNullOrWhiteSpace(license)) continue;
-
-                var title = Value(item, "title");
-                if (string.IsNullOrWhiteSpace(title)) title = request.DisplayLabel;
-                var architect = request.Architect;
-                results.Add(new OnlineCandidate
+                try
                 {
-                    Id = "openverse:" + Value(item, "id"),
-                    DiscoveryProvider = "openverse",
-                    SourceName = "Openverse · " + DisplaySource(source, provider),
-                    Title = title,
-                    ArchitectOrCategory = request.DisplayLabel,
-                    Architect = architect,
-                    ProjectName = ArchitectureMetadata.CleanProjectName(title, architect),
-                    Artist = Value(item, "creator") is { Length: > 0 } creator ? creator : "Unknown contributor",
-                    License = license,
-                    LicenseUrl = Value(item, "license_url"),
-                    SourcePageUrl = sourcePage,
-                    OriginalUrl = originalUrl,
-                    PreviewUrl = previewUrl,
-                    Width = width,
-                    Height = height
-                });
+                    var id = "openverse:" + Value(item, "id");
+                    if (!seen.Add(id)) continue;
+                    var source = Value(item, "source");
+                    var provider = Value(item, "provider");
+                    if (source.Contains("wikimedia", StringComparison.OrdinalIgnoreCase)
+                        || provider.Contains("wikimedia", StringComparison.OrdinalIgnoreCase)) continue;
+
+                    var width = IntValue(item, "width");
+                    var height = IntValue(item, "height");
+                    if (Math.Min(width, height) < 1200 || Math.Max(width, height) < 1800) continue;
+
+                    var originalUrl = Value(item, "url");
+                    var previewUrl = Value(item, "thumbnail");
+                    var sourcePage = Value(item, "foreign_landing_url");
+                    var license = FormatLicense(Value(item, "license"), Value(item, "license_version"));
+                    if (string.IsNullOrWhiteSpace(originalUrl) || string.IsNullOrWhiteSpace(previewUrl)
+                        || string.IsNullOrWhiteSpace(sourcePage) || string.IsNullOrWhiteSpace(license)) continue;
+
+                    var title = Value(item, "title");
+                    if (string.IsNullOrWhiteSpace(title)) title = request.DisplayLabel;
+                    var architect = request.Architect;
+                    results.Add(new OnlineCandidate
+                    {
+                        Id = id,
+                        DiscoveryProvider = "openverse",
+                        SourceName = "Openverse · " + DisplaySource(source, provider),
+                        Title = title,
+                        ArchitectOrCategory = request.DisplayLabel,
+                        Architect = architect,
+                        ProjectName = ArchitectureMetadata.CleanProjectName(title, architect),
+                        Artist = Value(item, "creator") is { Length: > 0 } creator ? creator : "Unknown contributor",
+                        License = license,
+                        LicenseUrl = Value(item, "license_url"),
+                        SourcePageUrl = sourcePage,
+                        OriginalUrl = originalUrl,
+                        PreviewUrl = previewUrl,
+                        Width = width,
+                        Height = height
+                    });
+                    if (results.Count >= limit) return results;
+                }
+                catch (Exception ex) { AppLog.Error(ex); }
             }
-            catch (Exception ex) { AppLog.Error(ex); }
         }
         return results;
     }
