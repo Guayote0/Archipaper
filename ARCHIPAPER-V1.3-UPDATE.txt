@@ -1,0 +1,24 @@
+Archipaper v1.3 update
+
+This update fixes v1.2 being too strict during online discovery.
+
+What changed:
+
+- Exact-name architect searches still use the checked architect names.
+- Archipaper no longer rejects returned images only because the source metadata does not repeat the architect name.
+- This should produce more review candidates while keeping the deterministic v1.2 discovery sweep.
+- The checkbox text now makes the tradeoff clearer: architect-only search is more precise but returns fewer results than broader category search.
+- Version updated to 1.3.0.
+
+Upload steps:
+
+1. Extract this ZIP.
+2. Upload the extracted contents to the Archipaper GitHub repository.
+3. Commit directly to main.
+4. Wait for the GitHub Action to build.
+5. Exit Archipaper from the Windows tray before installing.
+6. Install from installer-output\Archipaper-Setup.exe.
+
+Tip:
+
+For the largest result pool, uncheck "Search checked architects only" and use categories. For more focused results, keep it checked.

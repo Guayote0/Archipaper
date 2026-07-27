@@ -1,6 +1,5 @@
 using System.Security.Cryptography;
 using System.Text;
-using System.Globalization;
 using Archipaper.Models;
 
 namespace Archipaper.Services;
@@ -64,7 +63,6 @@ public sealed class ReviewQueueService : IDisposable
 
             foreach (var candidate in candidates)
             {
-                if (!CandidateMatchesRequest(candidate, request)) continue;
                 if (!known.Add(candidate.Id)) continue;
                 candidate.PreviewFilePath = Path.Combine(AppPaths.CandidateCache, SafeName(candidate.Id, ".jpg"));
                 try { await DownloadAsync(candidate, candidate.PreviewUrl, candidate.PreviewFilePath, token); }
@@ -109,32 +107,6 @@ public sealed class ReviewQueueService : IDisposable
             requests.Add(new DiscoveryRequest("", "Buildings", false));
 
         return requests;
-    }
-
-    private static bool CandidateMatchesRequest(OnlineCandidate candidate, DiscoveryRequest request)
-    {
-        if (!request.IsStrict || string.IsNullOrWhiteSpace(request.Architect)) return true;
-
-        var haystack = NormalizeForSearch(string.Join(" ", candidate.Title, candidate.Artist,
-            candidate.Architect, candidate.ProjectName, candidate.SourcePageUrl));
-        var tokens = NormalizeForSearch(request.Architect)
-            .Split(' ', StringSplitOptions.RemoveEmptyEntries)
-            .Where(x => x.Length > 2)
-            .ToList();
-        return tokens.Count > 0 && tokens.All(haystack.Contains);
-    }
-
-    private static string NormalizeForSearch(string value)
-    {
-        var normalized = value.Normalize(NormalizationForm.FormD);
-        var builder = new StringBuilder(normalized.Length);
-        foreach (var ch in normalized)
-        {
-            var category = CharUnicodeInfo.GetUnicodeCategory(ch);
-            if (category == UnicodeCategory.NonSpacingMark) continue;
-            builder.Append(char.IsLetterOrDigit(ch) ? char.ToLowerInvariant(ch) : ' ');
-        }
-        return builder.ToString().Normalize(NormalizationForm.FormC);
     }
 
     public async Task<int> ImportLocalFilesAsync(IEnumerable<string> filePaths)
