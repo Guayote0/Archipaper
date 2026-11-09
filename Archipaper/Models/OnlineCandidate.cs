@@ -26,6 +26,8 @@ public sealed class OnlineCandidate
 
 public sealed class ApprovedImageMetadata
 {
+    public string ContentHash { get; set; } = "";
+    public string OriginalUrl { get; set; } = "";
     public string Id { get; set; } = "";
     public string FilePath { get; set; } = "";
     public string Title { get; set; } = "";

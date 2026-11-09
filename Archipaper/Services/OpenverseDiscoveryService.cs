@@ -1,22 +1,19 @@
-using System.Net.Http.Headers;
 using System.Text.Json;
 using Archipaper.Models;
 
 namespace Archipaper.Services;
 
-public sealed class OpenverseDiscoveryService : IDisposable
+public sealed class OpenverseDiscoveryService : IImageProvider
 {
     private const string Api = "https://api.openverse.org/v1/images/";
     private readonly HttpClient _http;
 
-    public OpenverseDiscoveryService()
-    {
-        _http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
-        _http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("Archipaper", "1.3"));
-        _http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("(desktop-wallpaper-app)"));
-    }
+    public string Id => "openverse";
+    public string Name => "Openverse";
+    public bool IsEnabled(AppSettings settings, DiscoveryRequest request) => settings.SearchOpenverse;
+    public OpenverseDiscoveryService(HttpClient? http = null) => _http = http ?? HttpTransfer.CreateClient();
 
-    public async Task<IReadOnlyList<OnlineCandidate>> SearchAsync(DiscoveryRequest request, int limit, CancellationToken token)
+    public async Task<IReadOnlyList<OnlineCandidate>> SearchAsync(DiscoveryRequest request, int limit, CancellationToken token, int page = 0)
     {
         var results = new List<OnlineCandidate>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -24,10 +21,11 @@ public sealed class OpenverseDiscoveryService : IDisposable
         {
             var url = Api + "?q=" + Uri.EscapeDataString(query)
                 + "&page_size=" + Math.Clamp(limit, 1, 20)
+                + "&page=" + (page + 1)
                 + "&mature=false";
 
             using var response = await _http.GetAsync(url, token);
-            response.EnsureSuccessStatusCode();
+            HttpTransfer.EnsureSuccess(response);
             await using var stream = await response.Content.ReadAsStreamAsync(token);
             using var json = await JsonDocument.ParseAsync(stream, cancellationToken: token);
             if (!json.RootElement.TryGetProperty("results", out var items)) continue;
@@ -83,21 +81,13 @@ public sealed class OpenverseDiscoveryService : IDisposable
         return results;
     }
 
-    public async Task DownloadAsync(string url, string destination, CancellationToken token)
-    {
-        using var response = await _http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, token);
-        response.EnsureSuccessStatusCode();
-        await using var source = await response.Content.ReadAsStreamAsync(token);
-        await using var target = File.Create(destination);
-        await source.CopyToAsync(target, token);
-    }
 
     private static string Value(JsonElement element, string name) =>
         element.TryGetProperty(name, out var value) && value.ValueKind is not JsonValueKind.Null
             ? value.ToString().Trim() : "";
 
     private static int IntValue(JsonElement element, string name) =>
-        element.TryGetProperty(name, out var value) && value.TryGetInt32(out var number) ? number : 0;
+        element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var number) ? number : 0;
 
     private static string FormatLicense(string license, string version)
     {

@@ -34,15 +34,22 @@ public sealed class AppController : IDisposable
         AppPaths.EnsureCreated();
         var store = new JsonStore();
         var settings = await store.LoadAsync(AppPaths.Settings, () => new AppSettings());
+        settings.Normalize();
         var history = await store.LoadAsync(AppPaths.History, () => new List<HistoryEntry>());
+        var schedule = await store.LoadAsync(AppPaths.RotationState, () => new RotationSchedule
+        {
+            IntervalMinutes = settings.RotationMinutes,
+            Monitors = history.GroupBy(x => x.MonitorId).ToDictionary(g => g.Key, g => new MonitorSchedule
+            { LastSuccess = g.Last().AppliedAt, DueAt = g.Last().AppliedAt.AddMinutes(settings.RotationMinutes) })
+        });
         var reviewQueue = await ReviewQueueService.CreateAsync(store);
-        return new AppController(store, new RotationService(settings, history, store), reviewQueue);
+        return new AppController(store, new RotationService(settings, history, store, schedule), reviewQueue);
     }
 
-    public void Start(bool showWindow)
+    public async Task StartAsync(bool showWindow)
     {
-        _rotation.StartTimer();
         if (showWindow) ShowWindow();
+        await _rotation.StartTimerAsync();
     }
 
     private Forms.ContextMenuStrip BuildMenu()
@@ -51,9 +58,11 @@ public sealed class AppController : IDisposable
         menu.Items.Add("Change wallpaper now", null, async (_, _) => await _rotation.RotateAsync());
         menu.Items.Add("Open Archipaper", null, (_, _) => ShowWindow());
         menu.Items.Add(new Forms.ToolStripSeparator());
-        menu.Items.Add("Exit", null, (_, _) =>
+        menu.Items.Add("Exit", null, async (_, _) =>
         {
             _window?.CloseForExit();
+            await _rotation.DisposeAsync();
+            await _reviewQueue.DisposeAsync();
             Application.Current.Shutdown();
         });
         return menu;
@@ -71,11 +80,12 @@ public sealed class AppController : IDisposable
         _window.Activate();
     }
 
-    private async Task SaveSettingsAsync()
+    private async Task SaveSettingsAsync(bool rotateNow)
     {
         await _store.SaveAsync(AppPaths.Settings, _rotation.Settings);
-        StartupService.SetEnabled(_rotation.Settings.StartWithWindows);
-        _rotation.StartTimer();
+        await _rotation.StartTimerAsync(rotateNow);
+        try { StartupService.SetEnabled(_rotation.Settings.StartWithWindows); }
+        catch (Exception ex) { AppLog.Error(ex); MessageBox.Show("Preferences saved, but Windows startup registration failed.", "Archipaper"); }
     }
 
     public void Dispose()

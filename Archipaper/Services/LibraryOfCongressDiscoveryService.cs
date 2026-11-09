@@ -1,34 +1,32 @@
-using System.Net.Http.Headers;
 using System.Text.RegularExpressions;
 using System.Text.Json;
 using Archipaper.Models;
 
 namespace Archipaper.Services;
 
-public sealed class LibraryOfCongressDiscoveryService : IDisposable
+public sealed class LibraryOfCongressDiscoveryService : IImageProvider
 {
     private const string PhotosApi = "https://www.loc.gov/photos/";
     private readonly HttpClient _http;
 
-    public LibraryOfCongressDiscoveryService()
-    {
-        _http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
-        _http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("Archipaper", "1.3"));
-        _http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("(desktop-wallpaper-app)"));
-    }
+    public string Id => "loc";
+    public string Name => "Library of Congress";
+    public bool IsEnabled(AppSettings settings, DiscoveryRequest request) => settings.SearchLibraryOfCongress && request.Category == "Drawings";
+    public LibraryOfCongressDiscoveryService(HttpClient? http = null) => _http = http ?? HttpTransfer.CreateClient();
 
-    public async Task<IReadOnlyList<OnlineCandidate>> SearchAsync(DiscoveryRequest request, int limit, CancellationToken token)
+    public async Task<IReadOnlyList<OnlineCandidate>> SearchAsync(DiscoveryRequest request, int limit, CancellationToken token, int page = 0)
     {
         var results = new List<OnlineCandidate>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var query in request.QueryVariants)
         {
             var url = PhotosApi + "?fo=json&c=" + Math.Clamp(limit, 1, 25)
+                + "&sp=" + (page + 1)
                 + "&fa=online-format:image"
                 + "&q=" + Uri.EscapeDataString(query);
 
             using var response = await _http.GetAsync(url, token);
-            response.EnsureSuccessStatusCode();
+            HttpTransfer.EnsureSuccess(response);
             await using var stream = await response.Content.ReadAsStreamAsync(token);
             using var json = await JsonDocument.ParseAsync(stream, cancellationToken: token);
             if (!json.RootElement.TryGetProperty("results", out var items)) continue;
@@ -37,7 +35,7 @@ public sealed class LibraryOfCongressDiscoveryService : IDisposable
             {
                 try
                 {
-                    var candidate = CandidateFromItem(item, request, allowDetailFetch: false);
+                    var candidate = CandidateFromItem(item, request);
                     if (candidate is null && Uri.TryCreate(Value(item, "url"), UriKind.Absolute, out var itemUri))
                     {
                         candidate = await CandidateFromDetailAsync(itemUri, request, token);
@@ -54,28 +52,20 @@ public sealed class LibraryOfCongressDiscoveryService : IDisposable
         return results;
     }
 
-    public async Task DownloadAsync(string url, string destination, CancellationToken token)
-    {
-        using var response = await _http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, token);
-        response.EnsureSuccessStatusCode();
-        await using var source = await response.Content.ReadAsStreamAsync(token);
-        await using var target = File.Create(destination);
-        await source.CopyToAsync(target, token);
-    }
 
     private async Task<OnlineCandidate?> CandidateFromDetailAsync(Uri itemUri, DiscoveryRequest request, CancellationToken token)
     {
         var builder = new UriBuilder(itemUri) { Query = "fo=json" };
         using var response = await _http.GetAsync(builder.Uri, token);
-        response.EnsureSuccessStatusCode();
+        HttpTransfer.EnsureSuccess(response);
         await using var stream = await response.Content.ReadAsStreamAsync(token);
         using var json = await JsonDocument.ParseAsync(stream, cancellationToken: token);
         return json.RootElement.TryGetProperty("item", out var item)
-            ? CandidateFromItem(item, request, allowDetailFetch: true)
+            ? CandidateFromItem(item, request)
             : null;
     }
 
-    private static OnlineCandidate? CandidateFromItem(JsonElement item, DiscoveryRequest request, bool allowDetailFetch)
+    private static OnlineCandidate? CandidateFromItem(JsonElement item, DiscoveryRequest request)
     {
         var image = BestImage(item);
         if (string.IsNullOrWhiteSpace(image.Url)) return null;
@@ -133,7 +123,7 @@ public sealed class LibraryOfCongressDiscoveryService : IDisposable
 
         return options
             .Where(x => !x.Url.EndsWith(".svg", StringComparison.OrdinalIgnoreCase))
-            .OrderByDescending(x => x.Width * x.Height)
+            .OrderByDescending(x => (long)x.Width * x.Height)
             .ThenByDescending(x => ScoreUrl(x.Url))
             .FirstOrDefault();
     }

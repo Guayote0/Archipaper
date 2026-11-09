@@ -2,9 +2,11 @@ namespace Archipaper.Services;
 
 public static class AppPaths
 {
-    public static readonly string Root = Path.Combine(
+    public static readonly string Root = Environment.GetEnvironmentVariable("ARCHIPAPER_DATA_DIR") ?? Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Archipaper");
     public static readonly string Settings = Path.Combine(Root, "settings.json");
+    public static readonly string RotationState = Path.Combine(Root, "rotation-state.json");
+    public static readonly string DiscoveryState = Path.Combine(Root, "discovery-state.json");
     public static readonly string History = Path.Combine(Root, "history.json");
     public static readonly string Cache = Path.Combine(Root, "cache");
     public static readonly string CandidateCache = Path.Combine(Cache, "candidates");

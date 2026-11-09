@@ -1,249 +1,232 @@
 using System.Security.Cryptography;
 using System.Text;
 using Archipaper.Models;
-
 namespace Archipaper.Services;
 
-public sealed class ReviewQueueService : IDisposable
+public sealed class ReviewQueueService : IDisposable, IAsyncDisposable
 {
     private readonly JsonStore _store;
-    private readonly WikimediaDiscoveryService _wikimedia = new();
-    private readonly OpenverseDiscoveryService _openverse = new();
-    private readonly LibraryOfCongressDiscoveryService _libraryOfCongress = new();
-    private List<OnlineCandidate> _queue;
-    private List<ApprovedImageMetadata> _approved;
-
+    private readonly IImageProvider[] _providers = [new WikimediaDiscoveryService(), new OpenverseDiscoveryService(), new LibraryOfCongressDiscoveryService()];
+    private readonly HttpClient _http = HttpTransfer.CreateClient();
+    private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly CancellationTokenSource _lifetime = new();
+    private readonly List<OnlineCandidate> _queue;
+    private readonly List<ApprovedImageMetadata> _approved;
+    private readonly DiscoveryState _state;
+    private readonly DiscoveryService _discovery;
+    private readonly Dictionary<string, DateTimeOffset> _failedPreviews = new();
+    private Task? _disposal;
+    public string LastDiscoveryMessage { get; private set; } = "";
+    public string LastImportMessage { get; private set; } = "";
     public IReadOnlyList<OnlineCandidate> Pending => _queue.Where(x => x.State == ReviewState.Pending).ToList();
     public IReadOnlyList<ApprovedImageMetadata> Approved => _approved.Where(x => x.IsAvailable).OrderByDescending(x => x.ApprovedAt).ToList();
-
-    private ReviewQueueService(JsonStore store, List<OnlineCandidate> queue, List<ApprovedImageMetadata> approved)
+    private ReviewQueueService(JsonStore store, List<OnlineCandidate> queue, List<ApprovedImageMetadata> approved, DiscoveryState state)
     {
-        _store = store;
-        _queue = queue;
-        _approved = approved;
+        _store = store; _queue = queue; _approved = approved; _state = state;
+        state.Seen ??= new(); state.Pages ??= new(); _discovery = new(_providers);
+        foreach (var item in queue) Remember(item.Id, item.OriginalUrl);
+        foreach (var item in approved) Remember(item.Id, item.OriginalUrl);
+        var approvedIds = approved.Select(x => x.Id).ToHashSet();
+        foreach (var item in queue.Where(x => approvedIds.Contains(x.Id))) item.State = ReviewState.Approved;
     }
-
-    public static async Task<ReviewQueueService> CreateAsync(JsonStore store)
-    {
-        var queue = await store.LoadAsync(AppPaths.ReviewQueue, () => new List<OnlineCandidate>());
-        var approved = await store.LoadAsync(AppPaths.ApprovedMetadata, () => new List<ApprovedImageMetadata>());
-        return new ReviewQueueService(store, queue, approved);
-    }
-
-    public OnlineCandidate? Current() => Pending.FirstOrDefault();
+    public static async Task<ReviewQueueService> CreateAsync(JsonStore store) => new(store,
+        await store.LoadAsync(AppPaths.ReviewQueue, () => new List<OnlineCandidate>()),
+        await store.LoadAsync(AppPaths.ApprovedMetadata, () => new List<ApprovedImageMetadata>()),
+        await store.LoadAsync(AppPaths.DiscoveryState, () => new DiscoveryState()));
+    public OnlineCandidate? Current() => _queue.FirstOrDefault(x => x.State == ReviewState.Pending);
 
     public async Task<int> DiscoverAsync(AppSettings settings, CancellationToken token)
     {
-        var requests = BuildRequests(settings);
-        var known = _queue.Select(x => x.Id).Concat(_approved.Select(x => x.Id)).ToHashSet();
-        var added = 0;
-        const int targetAdditions = 24;
-        foreach (var request in requests)
+        settings = settings.Snapshot();
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(token, _lifetime.Token);
+        await _gate.WaitAsync(linked.Token);
+        try
         {
-            var candidates = new List<OnlineCandidate>();
-            if (settings.SearchWikimedia)
+            var target = Math.Min(24, 96 - Pending.Count);
+            if (target <= 0) { LastDiscoveryMessage = "Review pending images first (96-image queue limit)."; return 0; }
+            var result = await _discovery.DiscoverAsync(settings, _state, target, async (candidate, ct) =>
             {
-                try { candidates.AddRange(await _wikimedia.SearchAsync(request, 25, token)); }
-                catch (OperationCanceledException) { throw; }
-                catch (Exception ex) { AppLog.Error(ex); }
-            }
-            if (settings.SearchOpenverse)
-            {
-                try { candidates.AddRange(await _openverse.SearchAsync(request, 25, token)); }
-                catch (OperationCanceledException) { throw; }
-                catch (Exception ex) { AppLog.Error(ex); }
-            }
-            if (settings.SearchLibraryOfCongress
-                && request.Category.Equals("Drawings", StringComparison.OrdinalIgnoreCase))
-            {
-                try { candidates.AddRange(await _libraryOfCongress.SearchAsync(request, 25, token)); }
-                catch (OperationCanceledException) { throw; }
-                catch (Exception ex) { AppLog.Error(ex); }
-            }
-
-            foreach (var candidate in candidates)
-            {
-                if (!known.Add(candidate.Id)) continue;
-                candidate.PreviewFilePath = Path.Combine(AppPaths.CandidateCache, SafeName(candidate.Id, ".jpg"));
-                try { await DownloadAsync(candidate, candidate.PreviewUrl, candidate.PreviewFilePath, token); }
-                catch (Exception ex) { AppLog.Error(ex); continue; }
-                _queue.Add(candidate);
-                added++;
-                if (added >= targetAdditions) break;
-            }
-            if (added >= targetAdditions) break;
+                if (_failedPreviews.TryGetValue(candidate.PreviewUrl, out var until) && until > DateTimeOffset.UtcNow) return false;
+                candidate.PreviewFilePath = Path.Combine(AppPaths.CandidateCache, SafeName(candidate.Id, ".image"));
+                try { await ValidatedDownloadAsync(candidate.PreviewUrl, candidate.PreviewFilePath, false, ct); _queue.Add(candidate); return true; }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+                catch (Exception ex) { AppLog.Error(ex); _failedPreviews[candidate.PreviewUrl] = DateTimeOffset.UtcNow.AddMinutes(5); return false; }
+            }, linked.Token);
+            LastDiscoveryMessage = result.Message; return result.Added;
         }
-        await SaveQueueAsync();
-        return added;
+        finally
+        {
+            try { await SaveQueueAsync(); await _store.SaveAsync(AppPaths.DiscoveryState, _state); }
+            finally { _gate.Release(); }
+        }
     }
 
-    private IReadOnlyList<DiscoveryRequest> BuildRequests(AppSettings settings)
+    public async Task<int> ImportLocalFilesAsync(IEnumerable<string> paths)
     {
-        var categories = settings.EnabledCategories
-            .Where(x => x is "Buildings" or "Interiors" or "Details" or "Drawings" or "Models")
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-        if (categories.Count == 0) categories.Add("Buildings");
-
-        var architects = settings.PreferredArchitects
-            .Where(x => !string.IsNullOrWhiteSpace(x))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-        var requests = new List<DiscoveryRequest>();
-
-        foreach (var category in categories)
+        var files = paths.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        await _gate.WaitAsync(_lifetime.Token);
+        var imported = 0; var duplicates = 0; var failed = 0;
+        try
         {
-            foreach (var architect in architects)
-                requests.Add(new DiscoveryRequest(architect, category, settings.StrictArchitectSearch));
-        }
-
-        if (!settings.StrictArchitectSearch || architects.Count == 0)
-        {
-            foreach (var category in categories)
-                requests.Add(new DiscoveryRequest("", category, false));
-        }
-
-        if (requests.Count == 0)
-            requests.Add(new DiscoveryRequest("", "Buildings", false));
-
-        return requests;
-    }
-
-    public async Task<int> ImportLocalFilesAsync(IEnumerable<string> filePaths)
-    {
-        var supported = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-            { ".jpg", ".jpeg", ".png", ".bmp" };
-        var knownIds = _approved.Select(x => x.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var imported = 0;
-
-        foreach (var sourcePath in filePaths.Where(File.Exists))
-        {
-            var extension = Path.GetExtension(sourcePath);
-            if (!supported.Contains(extension)) continue;
-
-            string hash;
-            using (var stream = File.OpenRead(sourcePath))
-            using (var sha = SHA256.Create())
-                hash = Convert.ToHexString(sha.ComputeHash(stream)).ToLowerInvariant();
-
-            var id = "import:" + hash;
-            if (!knownIds.Add(id)) continue;
-
-            var destination = Path.Combine(AppPaths.Approved, SafeName(id, extension.ToLowerInvariant()));
-            if (!string.Equals(Path.GetFullPath(sourcePath), Path.GetFullPath(destination), StringComparison.OrdinalIgnoreCase))
-                File.Copy(sourcePath, destination, false);
-
-            var title = Path.GetFileNameWithoutExtension(sourcePath);
-            _approved.Add(new ApprovedImageMetadata
+            await PopulateHashesAsync();
+            foreach (var source in files)
             {
-                Id = id,
-                FilePath = destination,
-                Title = title,
-                ProjectName = title,
-                SourceName = "Imported collection",
-                License = "User-provided image",
-                ApprovedAt = DateTimeOffset.Now
-            });
-            imported++;
+                _lifetime.Token.ThrowIfCancellationRequested();
+                var temp = Path.Combine(AppPaths.CandidateCache, Guid.NewGuid().ToString("N") + ".import");
+                try
+                {
+                    var prepared = await Task.Run(() =>
+                    {
+                        if (!ImageValidation.Extensions.Contains(Path.GetExtension(source)) || new FileInfo(source).Length > ImageValidation.MaxBytes)
+                            throw new InvalidDataException("Unsupported or oversized image.");
+                        File.Copy(source, temp); // Validate/hash an immutable snapshot of the source.
+                        return (Info: ImageValidation.Inspect(temp, true, true), Hash: ContentHash(temp));
+                    }, _lifetime.Token);
+                    var existing = _approved.FirstOrDefault(x => x.ContentHash == prepared.Hash);
+                    if (existing is not null && existing.IsAvailable && File.Exists(existing.FilePath)) { duplicates++; continue; }
+                    var id = existing?.Id ?? "import:" + prepared.Hash;
+                    var destination = Path.Combine(AppPaths.Approved, SafeName(id, prepared.Info.Extension));
+                    File.Move(temp, destination, true);
+                    var title = Path.GetFileNameWithoutExtension(source);
+                    var item = existing ?? new ApprovedImageMetadata { Id = id, Title = title, ProjectName = title, SourceName = "Imported collection", License = "User-provided image" };
+                    item.ContentHash = prepared.Hash; item.FilePath = destination; item.IsAvailable = true; item.ApprovedAt = DateTimeOffset.UtcNow;
+                    if (existing is null) _approved.Add(item);
+                    await _store.SaveAsync(AppPaths.ApprovedMetadata, _approved); imported++;
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex) { AppLog.Error(ex); failed++; }
+                finally { DeleteCacheFile(temp); }
+            }
+            LastImportMessage = $"Imported {imported}; {duplicates} duplicates; {failed} unsupported, unreadable or undersized files.";
+            return imported;
         }
-
-        if (imported > 0)
-            await _store.SaveAsync(AppPaths.ApprovedMetadata, _approved);
-        return imported;
+        finally { _gate.Release(); }
     }
 
     public async Task<bool> ApproveAsync(OnlineCandidate candidate, CancellationToken token)
     {
-        var extension = ExtensionFromUrl(candidate.OriginalUrl);
-        var path = Path.Combine(AppPaths.Approved, SafeName(candidate.Id, extension));
-        var temp = path + ".download";
-        var fullResolution = true;
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(token, _lifetime.Token);
+        await _gate.WaitAsync(linked.Token);
         try
         {
-            await DownloadAsync(candidate, candidate.OriginalUrl, temp, token);
+            if (candidate.State != ReviewState.Pending || _approved.Any(x => x.Id == candidate.Id && x.IsAvailable && File.Exists(x.FilePath))) return true;
+            await PopulateHashesAsync();
+            var temp = Path.Combine(AppPaths.CandidateCache, SafeName(candidate.Id, ".original"));
+            var fullResolution = true;
+            ImageInfo info;
+            try
+            {
+                if (HttpTransfer.UrlKey(candidate.OriginalUrl) == HttpTransfer.UrlKey(candidate.PreviewUrl) && File.Exists(candidate.PreviewFilePath))
+                {
+                    info = await Task.Run(() => ImageValidation.Inspect(candidate.PreviewFilePath, true, true), linked.Token);
+                    await Task.Run(() => CopyAtomically(candidate.PreviewFilePath, temp), linked.Token);
+                }
+                else info = await ValidatedDownloadAsync(candidate.OriginalUrl, temp, true, linked.Token);
+            }
+            catch (Exception ex) when (!linked.IsCancellationRequested && File.Exists(candidate.PreviewFilePath))
+            {
+                AppLog.Error(ex);
+                info = await Task.Run(() => ImageValidation.Inspect(candidate.PreviewFilePath, true, true), linked.Token);
+                await Task.Run(() => CopyAtomically(candidate.PreviewFilePath, temp), linked.Token); fullResolution = false;
+            }
+            var hash = await Task.Run(() => ContentHash(temp), linked.Token);
+            var existing = _approved.FirstOrDefault(x => x.ContentHash == hash);
+            if (existing is null || !existing.IsAvailable || !File.Exists(existing.FilePath))
+            {
+                var id = existing?.Id ?? candidate.Id;
+                var path = Path.Combine(AppPaths.Approved, SafeName(id, info.Extension));
+                await Task.Run(() => CopyAtomically(temp, path), linked.Token);
+                var image = existing ?? new ApprovedImageMetadata
+                {
+                    Id = id, Title = candidate.Title, Artist = candidate.Artist, Architect = candidate.Architect, ProjectName = candidate.ProjectName,
+                    License = candidate.License, LicenseUrl = candidate.LicenseUrl, SourcePageUrl = candidate.SourcePageUrl, SourceName = candidate.SourceName
+                };
+                image.ContentHash = hash; image.OriginalUrl = candidate.OriginalUrl; image.FilePath = path;
+                image.IsAvailable = true; image.ApprovedAt = DateTimeOffset.UtcNow;
+                if (existing is null) _approved.Add(image);
+                try { await _store.SaveAsync(AppPaths.ApprovedMetadata, _approved); }
+                catch { if (existing is null) _approved.Remove(image); throw; }
+            }
+            candidate.State = ReviewState.Approved; Remember(candidate.Id, candidate.OriginalUrl);
+            await SaveQueueAsync(); await _store.SaveAsync(AppPaths.DiscoveryState, _state);
+            DeleteCacheFile(temp); DeleteCacheFile(candidate.PreviewFilePath);
+            return fullResolution;
         }
-        catch (Exception ex) when (!token.IsCancellationRequested && File.Exists(candidate.PreviewFilePath))
+        finally { _gate.Release(); }
+    }
+    public Task SkipAsync(OnlineCandidate item) => MutateAsync(async () =>
+    { if (!_queue.Remove(item)) return; _queue.Add(item); await SaveQueueAsync(); });
+    public Task RejectAsync(OnlineCandidate item) => MutateAsync(async () =>
+    {
+        item.State = ReviewState.Rejected; Remember(item.Id, item.OriginalUrl);
+        await SaveQueueAsync(); await _store.SaveAsync(AppPaths.DiscoveryState, _state); DeleteCacheFile(item.PreviewFilePath);
+    });
+    public Task ToggleFavoriteAsync(ApprovedImageMetadata item) => MutateAsync(async () =>
+    { item.IsFavorite = !item.IsFavorite; await _store.SaveAsync(AppPaths.ApprovedMetadata, _approved); });
+    public Task RemoveApprovedAsync(ApprovedImageMetadata item) => MutateAsync(async () =>
+    {
+        if (File.Exists(item.FilePath))
         {
-            AppLog.Error(ex);
-            File.Copy(candidate.PreviewFilePath, temp, true);
-            fullResolution = false;
+            var destination = Path.Combine(AppPaths.Removed, Path.GetFileName(item.FilePath));
+            File.Move(item.FilePath, destination, true); item.FilePath = destination;
         }
-        File.Move(temp, path, true);
-        candidate.State = ReviewState.Approved;
-        _approved.Add(new ApprovedImageMetadata
-        {
-            Id = candidate.Id, FilePath = path, Title = candidate.Title, Artist = candidate.Artist,
-            Architect = candidate.Architect, ProjectName = candidate.ProjectName,
-            License = candidate.License, LicenseUrl = candidate.LicenseUrl,
-            SourcePageUrl = candidate.SourcePageUrl, SourceName = candidate.SourceName,
-            ApprovedAt = DateTimeOffset.Now
-        });
-        await _store.SaveAsync(AppPaths.ApprovedMetadata, _approved);
-        await SaveQueueAsync();
-        return fullResolution;
-    }
-
-    public async Task SkipAsync(OnlineCandidate candidate)
-    {
-        if (!_queue.Remove(candidate)) return;
-        _queue.Add(candidate);
-        await SaveQueueAsync();
-    }
-
-    public async Task RejectAsync(OnlineCandidate candidate)
-    {
-        candidate.State = ReviewState.Rejected;
-        if (File.Exists(candidate.PreviewFilePath)) File.Delete(candidate.PreviewFilePath);
-        await SaveQueueAsync();
-    }
-
-    public async Task ToggleFavoriteAsync(ApprovedImageMetadata image)
-    {
-        image.IsFavorite = !image.IsFavorite;
-        await _store.SaveAsync(AppPaths.ApprovedMetadata, _approved);
-    }
-
-    public async Task RemoveApprovedAsync(ApprovedImageMetadata image)
-    {
-        if (File.Exists(image.FilePath))
-        {
-            var destination = Path.Combine(AppPaths.Removed, Path.GetFileName(image.FilePath));
-            File.Move(image.FilePath, destination, true);
-            image.FilePath = destination;
-        }
-        image.IsAvailable = false;
-        await _store.SaveAsync(AppPaths.ApprovedMetadata, _approved);
-    }
-
+        item.IsAvailable = false; await _store.SaveAsync(AppPaths.ApprovedMetadata, _approved);
+    });
+    private async Task MutateAsync(Func<Task> action)
+    { await _gate.WaitAsync(_lifetime.Token); try { await action(); } finally { _gate.Release(); } }
     private Task SaveQueueAsync()
     {
-        _queue = _queue.TakeLast(1000).ToList();
+        var settled = _queue.Where(x => x.State != ReviewState.Pending).TakeLast(1000).ToHashSet();
+        _queue.RemoveAll(x => x.State != ReviewState.Pending && !settled.Contains(x));
         return _store.SaveAsync(AppPaths.ReviewQueue, _queue);
     }
-
-    private Task DownloadAsync(OnlineCandidate candidate, string url, string destination, CancellationToken token) =>
-        candidate.DiscoveryProvider.Equals("openverse", StringComparison.OrdinalIgnoreCase)
-            ? _openverse.DownloadAsync(url, destination, token)
-            : candidate.DiscoveryProvider.Equals("loc", StringComparison.OrdinalIgnoreCase)
-                ? _libraryOfCongress.DownloadAsync(url, destination, token)
-                : _wikimedia.DownloadAsync(url, destination, token);
-
-    private static string SafeName(string value, string extension)
+    private async Task<ImageInfo> ValidatedDownloadAsync(string url, string path, bool fullSize, CancellationToken token)
     {
-        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant()[..20];
-        return hash + extension;
+        if (File.Exists(path))
+        {
+            try { return await Task.Run(() => ImageValidation.Inspect(path, fullSize, true), token); }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex) { AppLog.Error(ex); DeleteCacheFile(path); }
+        }
+        await HttpTransfer.DownloadAsync(_http, url, path, fullSize ? ImageValidation.MaxBytes : 16 * 1024 * 1024, TimeSpan.FromSeconds(fullSize ? 45 : 10), token);
+        try { return await Task.Run(() => ImageValidation.Inspect(path, fullSize, true), token); }
+        catch { DeleteCacheFile(path); throw; }
     }
-
-    private static string ExtensionFromUrl(string url)
+    private async Task PopulateHashesAsync()
     {
-        var ext = Path.GetExtension(new Uri(url).AbsolutePath).ToLowerInvariant();
-        return ext is ".jpg" or ".jpeg" or ".png" or ".bmp" ? ext : ".jpg";
+        var missing = _approved.Where(x => string.IsNullOrEmpty(x.ContentHash) && File.Exists(x.FilePath)).ToList();
+        foreach (var image in missing)
+        {
+            try { image.ContentHash = await Task.Run(() => ContentHash(image.FilePath), _lifetime.Token); }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex) { AppLog.Error(ex); }
+        }
+        if (missing.Count > 0) await _store.SaveAsync(AppPaths.ApprovedMetadata, _approved);
     }
-
+    private void Remember(string id, string url)
+    {
+        _state.Seen.Add(id);
+        if (string.IsNullOrWhiteSpace(url)) return;
+        try { _state.Seen.Add(HttpTransfer.UrlKey(url)); } catch (InvalidDataException) { }
+    }
+    private static string ContentHash(string path)
+    { using var stream = File.OpenRead(path); return Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant(); }
+    private static string SafeName(string value, string extension) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant()[..24] + extension;
+    private static void CopyAtomically(string source, string destination)
+    {
+        var temp = destination + "." + Guid.NewGuid().ToString("N") + ".part";
+        try { File.Copy(source, temp); File.Move(temp, destination, true); }
+        finally { DeleteCacheFile(temp); }
+    }
+    private static void DeleteCacheFile(string path)
+    { try { if (File.Exists(path)) File.Delete(path); } catch (Exception ex) { AppLog.Error(ex); } }
     public void Dispose()
+    { if (_disposal is not null) return; _lifetime.Cancel(); _disposal = DisposeWhenIdleAsync(); }
+    private async Task DisposeWhenIdleAsync()
     {
-        _wikimedia.Dispose();
-        _openverse.Dispose();
-        _libraryOfCongress.Dispose();
+        await _gate.WaitAsync();
+        try { foreach (var provider in _providers) provider.Dispose(); _http.Dispose(); }
+        finally { _gate.Release(); }
     }
+    public async ValueTask DisposeAsync() { Dispose(); await _disposal!; }
 }

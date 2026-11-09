@@ -2,7 +2,12 @@ using System.Runtime.InteropServices;
 
 namespace Archipaper.Services;
 
-public sealed class DesktopWallpaperService : IDisposable
+public interface IWallpaperDesktop : IDisposable
+{
+    IReadOnlyList<MonitorInfo> GetMonitors();
+    void Set(string monitorId, string imagePath);
+}
+public sealed class DesktopWallpaperService : IWallpaperDesktop
 {
     private readonly IDesktopWallpaper _desktop = (IDesktopWallpaper)new DesktopWallpaperCom();
 
@@ -13,7 +18,10 @@ public sealed class DesktopWallpaperService : IDisposable
         for (uint i = 0; i < count; i++)
         {
             var id = _desktop.GetMonitorDevicePathAt(i);
-            _desktop.GetMonitorRECT(id, out var bounds);
+            var hr = _desktop.GetMonitorRECT(id, out var bounds);
+            if (hr == 1) continue; // S_FALSE means a remembered but disconnected display.
+            Marshal.ThrowExceptionForHR(hr);
+            if (bounds.Right <= bounds.Left || bounds.Bottom <= bounds.Top) continue;
             result.Add(new MonitorInfo(id, bounds.Right - bounds.Left, bounds.Bottom - bounds.Top));
         }
         return result;
@@ -49,7 +57,7 @@ internal interface IDesktopWallpaper
     [return: MarshalAs(UnmanagedType.LPWStr)] string GetWallpaper([MarshalAs(UnmanagedType.LPWStr)] string monitorId);
     void GetMonitorDevicePathAt(uint monitorIndex, [MarshalAs(UnmanagedType.LPWStr)] out string monitorId);
     void GetMonitorDevicePathCount(out uint count);
-    void GetMonitorRECT([MarshalAs(UnmanagedType.LPWStr)] string monitorId, out NativeRect displayRect);
+    [PreserveSig] int GetMonitorRECT([MarshalAs(UnmanagedType.LPWStr)] string monitorId, out NativeRect displayRect);
     void SetBackgroundColor(uint color);
     uint GetBackgroundColor();
     void SetPosition(DesktopWallpaperPosition position);
@@ -60,7 +68,7 @@ internal interface IDesktopWallpaper
     void GetSlideshowOptions(out int options, out uint slideshowTick);
     void AdvanceSlideshow([MarshalAs(UnmanagedType.LPWStr)] string monitorId, int direction);
     int GetStatus();
-    [return: MarshalAs(UnmanagedType.Bool)] bool Enable([MarshalAs(UnmanagedType.Bool)] bool enable);
+    void Enable([MarshalAs(UnmanagedType.Bool)] bool enable);
 }
 
 [StructLayout(LayoutKind.Sequential)]

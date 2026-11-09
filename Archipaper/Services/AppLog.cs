@@ -11,9 +11,12 @@ public static class AppLog
     {
         try
         {
-            AppPaths.EnsureCreated();
             lock (Gate)
+            {
+                Directory.CreateDirectory(AppPaths.Root);
+                if (File.Exists(AppPaths.Log) && new FileInfo(AppPaths.Log).Length > 2 * 1024 * 1024) File.Move(AppPaths.Log, AppPaths.Log + ".1", true);
                 File.AppendAllText(AppPaths.Log, $"{DateTimeOffset.Now:O} [{level}] {message}{Environment.NewLine}");
+            }
         }
         catch { /* Logging must never crash wallpaper rotation. */ }
     }

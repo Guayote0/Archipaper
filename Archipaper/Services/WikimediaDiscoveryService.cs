@@ -1,23 +1,20 @@
 using System.Net;
-using System.Net.Http.Headers;
 using System.Text.Json;
 using Archipaper.Models;
 
 namespace Archipaper.Services;
 
-public sealed class WikimediaDiscoveryService : IDisposable
+public sealed class WikimediaDiscoveryService : IImageProvider
 {
     private const string Api = "https://commons.wikimedia.org/w/api.php";
     private readonly HttpClient _http;
 
-    public WikimediaDiscoveryService()
-    {
-        _http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
-        _http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("Archipaper", "1.3"));
-        _http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("(desktop-wallpaper-app)"));
-    }
+    public string Id => "wikimedia";
+    public string Name => "Wikimedia Commons";
+    public bool IsEnabled(AppSettings settings, DiscoveryRequest request) => settings.SearchWikimedia;
+    public WikimediaDiscoveryService(HttpClient? http = null) => _http = http ?? HttpTransfer.CreateClient();
 
-    public async Task<IReadOnlyList<OnlineCandidate>> SearchAsync(DiscoveryRequest request, int limit, CancellationToken token)
+    public async Task<IReadOnlyList<OnlineCandidate>> SearchAsync(DiscoveryRequest request, int limit, CancellationToken token, int page = 0)
     {
         var results = new List<OnlineCandidate>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -25,33 +22,35 @@ public sealed class WikimediaDiscoveryService : IDisposable
         {
             var search = queryText + " filetype:bitmap";
             var url = Api + "?action=query&generator=search&gsrnamespace=6&gsrlimit=" + Math.Clamp(limit, 1, 50)
+                + "&gsroffset=" + (page * Math.Clamp(limit, 1, 50))
                 + "&gsrsearch=" + Uri.EscapeDataString(search)
                 + "&prop=imageinfo&iiprop=url|size|mime|extmetadata&iiurlwidth=1200&format=json&formatversion=2&origin=*";
 
             using var response = await _http.GetAsync(url, token);
-            response.EnsureSuccessStatusCode();
+            HttpTransfer.EnsureSuccess(response);
             await using var stream = await response.Content.ReadAsStreamAsync(token);
             using var json = await JsonDocument.ParseAsync(stream, cancellationToken: token);
+            if (json.RootElement.TryGetProperty("error", out var error)) throw new InvalidDataException("Wikimedia API error: " + Value(error, "code"));
             if (!json.RootElement.TryGetProperty("query", out var apiQuery)
                 || !apiQuery.TryGetProperty("pages", out var pages)) continue;
 
-            foreach (var page in pages.EnumerateArray())
+            foreach (var resultPage in pages.EnumerateArray())
             {
                 try
                 {
-                    var id = page.GetProperty("pageid").GetInt64().ToString();
+                    var id = resultPage.GetProperty("pageid").GetInt64().ToString();
                     if (!seen.Add(id)) continue;
-                    var info = page.GetProperty("imageinfo")[0];
+                    var info = resultPage.GetProperty("imageinfo")[0];
                     var mime = Value(info, "mime");
                     var width = info.GetProperty("width").GetInt32();
                     var height = info.GetProperty("height").GetInt32();
-                    if (!mime.StartsWith("image/", StringComparison.OrdinalIgnoreCase)
+                    if (mime is not ("image/jpeg" or "image/png" or "image/bmp")
                         || Math.Min(width, height) < 1200 || Math.Max(width, height) < 1800) continue;
                     var metadata = info.GetProperty("extmetadata");
                     var license = Meta(metadata, "LicenseShortName");
                     if (string.IsNullOrWhiteSpace(license)) continue;
 
-                    var title = Value(page, "title").Replace("File:", "", StringComparison.OrdinalIgnoreCase);
+                    var title = Value(resultPage, "title").Replace("File:", "", StringComparison.OrdinalIgnoreCase);
                     results.Add(new OnlineCandidate
                     {
                         Id = id,
@@ -66,7 +65,7 @@ public sealed class WikimediaDiscoveryService : IDisposable
                         LicenseUrl = Clean(Meta(metadata, "LicenseUrl")),
                         SourcePageUrl = Value(info, "descriptionurl"),
                         OriginalUrl = Value(info, "url"),
-                        PreviewUrl = Value(info, "thumburl"),
+                        PreviewUrl = string.IsNullOrWhiteSpace(Value(info, "thumburl")) ? Value(info, "url") : Value(info, "thumburl"),
                         Width = width,
                         Height = height
                     });
@@ -78,14 +77,6 @@ public sealed class WikimediaDiscoveryService : IDisposable
         return results;
     }
 
-    public async Task DownloadAsync(string url, string destination, CancellationToken token)
-    {
-        using var response = await _http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, token);
-        response.EnsureSuccessStatusCode();
-        await using var source = await response.Content.ReadAsStreamAsync(token);
-        await using var target = File.Create(destination);
-        await source.CopyToAsync(target, token);
-    }
 
     private static string Meta(JsonElement metadata, string name) =>
         metadata.TryGetProperty(name, out var item) && item.TryGetProperty("value", out var value) ? value.GetString() ?? "" : "";

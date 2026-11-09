@@ -29,8 +29,17 @@ public partial class App : Application
             args.Handled = true;
         };
 
-        _controller = await AppController.CreateAsync();
-        _controller.Start(!e.Args.Contains("--background", StringComparer.OrdinalIgnoreCase));
+        try
+        {
+            _controller = await AppController.CreateAsync();
+            await _controller.StartAsync(!e.Args.Contains("--background", StringComparer.OrdinalIgnoreCase));
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error(ex);
+            MessageBox.Show("Archipaper could not start. Your data has been retained; see archipaper.log.", "Archipaper");
+            Shutdown(1);
+        }
     }
 
     protected override void OnExit(ExitEventArgs e)

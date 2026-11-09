@@ -2,7 +2,7 @@
 
 Archipaper is a native Windows wallpaper application designed for architecture imagery and mixed-orientation, multi-monitor setups.
 
-## Current build (1.3)
+## Current build (1.4)
 
 - Native Windows 10/11 desktop application
 - Independent wallpaper assignment per monitor
@@ -24,7 +24,7 @@ Archipaper is a native Windows wallpaper application designed for architecture i
 - Semi-automatic approval/rejection queue with local previews
 - Non-destructive queue skipping
 - Full-resolution downloads only after approval
-- Cached-preview fallback when a full-resolution download is unavailable
+- Validated cached-preview fallback only when the preview meets wallpaper resolution requirements
 - Editable architect and project-name captions for approved online wallpapers
 - Smaller, more discreet wallpaper captions
 - Main-window credit for Iván Castro
@@ -59,3 +59,14 @@ dotnet run --project .\Archipaper\Archipaper.csproj
 ## Privacy and credits
 
 Archipaper does not upload images or send analytics. Online discovery queries Wikimedia Commons and, when enabled, Openverse and the Library of Congress. Flickr and Google searches open in the user's browser and do not scrape or automatically download results. Source and contributor/license attribution are retained locally for discovered images. Imported images remain the user's responsibility. Openverse aggregates third-party metadata, and Library of Congress records can have item-specific rights advisories, so users should verify the license or rights note on each original source page.
+
+
+## Reliability update and tests
+
+See [AUDIT.md](AUDIT.md) for the v1.4 audit and limits. Rotation uses one dedicated STA scheduler with saved per-monitor deadlines and independent recovery; saving preferences no longer restarts the hour. Closing the window keeps the tray app running; Exit stops rotation.
+
+Discovery has pagination, cancellation, provider cooldowns and URL deduplication. New imported/approved images must decode as JPEG, PNG or BMP and meet a 1200-by-1800 minimum (either orientation). Existing collections remain intact. Full-size cached originals avoid a second download; content hashes prevent duplicate approvals/imports.
+
+Run core checks with `dotnet run --project Archipaper.Tests -c Release`. On Windows, run `dotnet run --project Archipaper.WindowsTests -c Release`. Windows tests use temporary data and a fake wallpaper backend, so they do not alter your desktop. `build.ps1` runs both before packaging and checks native exit codes. GitHub Actions runs on pull requests as well as main.
+
+Optional `ARCHIPAPER_DATA_DIR` selects a development/test data folder; by default settings remain under `%LOCALAPPDATA%\Archipaper`.

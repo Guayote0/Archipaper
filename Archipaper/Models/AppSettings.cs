@@ -2,6 +2,21 @@ namespace Archipaper.Models;
 
 public sealed class AppSettings
 {
+    public void Normalize()
+    {
+        RotationMinutes = Math.Clamp(RotationMinutes, 5, 1440);
+        RecentImageLimit = Math.Clamp(RecentImageLimit, 0, 500);
+        LocalImageFolder ??= "";
+        EnabledCategories ??= []; AvailableArchitects ??= []; PreferredArchitects ??= [];
+        if (WallpaperSourceMode is not (ApprovedOnly or LocalOnly or ApprovedAndLocal)) WallpaperSourceMode = ApprovedAndLocal;
+    }
+    public AppSettings Snapshot()
+    {
+        var copy = (AppSettings)MemberwiseClone();
+        copy.EnabledCategories = [.. EnabledCategories]; copy.AvailableArchitects = [.. AvailableArchitects];
+        copy.PreferredArchitects = [.. PreferredArchitects];
+        return copy;
+    }
     public const string ApprovedOnly = "Approved";
     public const string LocalOnly = "Local";
     public const string ApprovedAndLocal = "Both";

@@ -18,7 +18,12 @@ public sealed class CaptionedWallpaperService
             $"{monitor.Height}|{architect}|{project}";
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identity))).ToLowerInvariant()[..24];
         var output = Path.Combine(AppPaths.CaptionCache, hash + ".jpg");
-        if (File.Exists(output)) return output;
+        if (File.Exists(output))
+        {
+            try { ImageValidation.Inspect(output); File.SetLastAccessTimeUtc(output, DateTime.UtcNow); return output; }
+            catch (Exception ex) { AppLog.Error(ex); }
+        }
+        ImageValidation.Inspect(sourcePath);
 
         using var source = new System.Drawing.Bitmap(sourcePath);
         using var canvas = new System.Drawing.Bitmap(monitor.Width, monitor.Height, PixelFormat.Format24bppRgb);
@@ -68,7 +73,19 @@ public sealed class CaptionedWallpaperService
                 new System.Drawing.RectangleF(left, top + lineHeight, captionWidth, lineHeight), format);
         }
 
-        canvas.Save(output, ImageFormat.Jpeg);
+        var temp = output + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try { canvas.Save(temp, ImageFormat.Jpeg); File.Move(temp, output, true); }
+        finally { if (File.Exists(temp)) File.Delete(temp); }
+        try
+        {
+            long total = 0;
+            foreach (var file in new DirectoryInfo(AppPaths.CaptionCache).GetFiles("*.jpg").OrderByDescending(x => x.LastAccessTimeUtc))
+            {
+                total += file.Length;
+                if (total > 512L * 1024 * 1024 && file.FullName != output && file.LastAccessTimeUtc < DateTime.UtcNow.AddDays(-7)) file.Delete();
+            }
+        }
+        catch (Exception ex) { AppLog.Error(ex); }
         return output;
     }
 }

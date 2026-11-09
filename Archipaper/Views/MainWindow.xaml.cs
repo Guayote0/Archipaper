@@ -15,14 +15,14 @@ namespace Archipaper.Views;
 public partial class MainWindow : Window
 {
     private readonly RotationService _rotation;
-    private readonly Func<Task> _save;
+    private readonly Func<bool, Task> _save;
     private readonly ReviewQueueService _reviewQueue;
     private readonly ObservableCollection<ArchitectPreferenceItem> _architects = [];
     private OnlineCandidate? _candidate;
     private CancellationTokenSource? _onlineCts;
     private bool _allowClose;
 
-    public MainWindow(RotationService rotation, ReviewQueueService reviewQueue, Func<Task> save)
+    public MainWindow(RotationService rotation, ReviewQueueService reviewQueue, Func<bool, Task> save)
     {
         InitializeComponent();
         _rotation = rotation;
@@ -32,6 +32,7 @@ public partial class MainWindow : Window
         MonitorText.Text = _rotation.MonitorSummary();
         _rotation.StatusChanged += Rotation_StatusChanged;
         ShowNextCandidate();
+        Closed += (_, _) => { _rotation.StatusChanged -= Rotation_StatusChanged; _onlineCts?.Cancel(); };
         Closing += (_, args) =>
         {
             if (_allowClose) return;
@@ -89,7 +90,7 @@ public partial class MainWindow : Window
 
     private async void Save_Click(object sender, RoutedEventArgs e) => await SaveFromControlsAsync();
 
-    private async Task SaveFromControlsAsync()
+    private async Task SaveFromControlsAsync(bool rotateNow = false)
     {
         var settings = _rotation.Settings;
         settings.LocalImageFolder = FolderText.Text.Trim();
@@ -114,8 +115,8 @@ public partial class MainWindow : Window
         settings.PreferredArchitects = _architects.Where(x => x.IsEnabled).Select(x => x.Name).ToList();
         if (IntervalCombo.SelectedItem is ComboBoxItem item && int.TryParse(item.Tag?.ToString(), out var minutes))
             settings.RotationMinutes = minutes;
-        await _save();
-        StatusText.Text = "Preferences saved.";
+        await _save(rotateNow);
+        if (!rotateNow) StatusText.Text = "Preferences saved.";
     }
 
     private void ChooseFolder_Click(object sender, RoutedEventArgs e)
@@ -195,7 +196,7 @@ public partial class MainWindow : Window
     }
 
     private static void OpenWebPage(string url) =>
-        Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+        Process.Start(new ProcessStartInfo(HttpTransfer.UrlKey(url)) { UseShellExecute = true });
 
     private async void ImportImages_Click(object sender, RoutedEventArgs e)
     {
@@ -227,11 +228,9 @@ public partial class MainWindow : Window
     {
         try
         {
-            var imported = await _reviewQueue.ImportLocalFilesAsync(paths);
+            await _reviewQueue.ImportLocalFilesAsync(paths);
             RefreshApprovedCollection();
-            QueueStatus.Text = imported == 0
-                ? "No new supported images were imported."
-                : $"Imported {imported} image{(imported == 1 ? "" : "s")} into the approved collection.";
+            QueueStatus.Text = _reviewQueue.LastImportMessage;
         }
         catch (Exception ex)
         {
@@ -242,31 +241,26 @@ public partial class MainWindow : Window
 
     private async void ChangeNow_Click(object sender, RoutedEventArgs e)
     {
-        await SaveFromControlsAsync();
         StatusText.Text = "Choosing wallpapers…";
-        await _rotation.RotateAsync();
+        await SaveFromControlsAsync(rotateNow: true);
     }
 
     private void Rotation_StatusChanged(object? sender, string message) =>
-        Dispatcher.Invoke(() => StatusText.Text = message);
+        Dispatcher.BeginInvoke(() => StatusText.Text = message);
 
     private async void Discover_Click(object sender, RoutedEventArgs e)
     {
-        DiscoverButton.IsEnabled = false;
+        if (_onlineCts is not null) { _onlineCts.Cancel(); return; }
+        DiscoverButton.Content = "CANCEL SEARCH";
         QueueStatus.Text = "Searching the architecture collection…";
-        _onlineCts?.Cancel();
         _onlineCts = new CancellationTokenSource();
         try
         {
             await SaveFromControlsAsync();
-            var added = await _reviewQueue.DiscoverAsync(_rotation.Settings, _onlineCts.Token);
+            await _reviewQueue.DiscoverAsync(_rotation.Settings, _onlineCts.Token);
             ShowNextCandidate();
             RefreshApprovedCollection();
-            QueueStatus.Text = added == 0
-                ? _reviewQueue.Pending.Count > 0
-                    ? $"No additional images found. {_reviewQueue.Pending.Count} image{(_reviewQueue.Pending.Count == 1 ? "" : "s")} still waiting for review."
-                    : "No new suitable images found. Try changing sources, categories, or architects."
-                : $"Added {added} images for review.";
+            QueueStatus.Text = _reviewQueue.LastDiscoveryMessage;
         }
         catch (OperationCanceledException) { QueueStatus.Text = "Search cancelled."; }
         catch (Exception ex)
@@ -274,7 +268,7 @@ public partial class MainWindow : Window
             AppLog.Error(ex);
             QueueStatus.Text = "The online collection is temporarily unavailable. Local rotation is unaffected.";
         }
-        finally { DiscoverButton.IsEnabled = true; }
+        finally { _onlineCts.Dispose(); _onlineCts = null; DiscoverButton.Content = "DISCOVER NEW IMAGES"; }
     }
 
     private async void Approve_Click(object sender, RoutedEventArgs e)
@@ -293,7 +287,7 @@ public partial class MainWindow : Window
             ShowNextCandidate();
             RefreshApprovedCollection();
         }
-        catch (Exception ex) { AppLog.Error(ex); QueueStatus.Text = "Download failed; the image remains in the review queue."; }
+        catch (Exception ex) { AppLog.Error(ex); QueueStatus.Text = "No usable full-size image could be saved; the image remains pending. Retry or skip it."; }
         finally { ReviewPanel.IsEnabled = true; }
     }
 
@@ -316,7 +310,7 @@ public partial class MainWindow : Window
     private void Source_Click(object sender, RoutedEventArgs e)
     {
         if (_candidate is null || string.IsNullOrWhiteSpace(_candidate.SourcePageUrl)) return;
-        Process.Start(new ProcessStartInfo(_candidate.SourcePageUrl) { UseShellExecute = true });
+        OpenWebPage(_candidate.SourcePageUrl);
     }
 
     private void ShowNextCandidate()
@@ -343,6 +337,7 @@ public partial class MainWindow : Window
             var bitmap = new BitmapImage();
             bitmap.BeginInit();
             bitmap.CacheOption = BitmapCacheOption.OnLoad;
+            bitmap.DecodePixelWidth = 600;
             bitmap.UriSource = new Uri(_candidate.PreviewFilePath, UriKind.Absolute);
             bitmap.EndInit();
             bitmap.Freeze();
@@ -355,8 +350,11 @@ public partial class MainWindow : Window
 
     private void RefreshApprovedCollection()
     {
-        ApprovedList.ItemsSource = null;
-        ApprovedList.ItemsSource = _reviewQueue.Approved;
+        if (!ApprovedExpander.IsExpanded) return;
+        var selected = (ApprovedList.SelectedItem as ApprovedImageMetadata)?.Id;
+        var approved = _reviewQueue.Approved;
+        ApprovedList.ItemsSource = approved;
+        ApprovedList.SelectedItem = approved.FirstOrDefault(x => x.Id == selected);
         ApprovedDetails.Text = _reviewQueue.Approved.Count == 0
             ? "Approve images from the review queue to build your collection."
             : $"{_reviewQueue.Approved.Count} approved image{(_reviewQueue.Approved.Count == 1 ? "" : "s")}";
@@ -382,7 +380,7 @@ public partial class MainWindow : Window
     private void ApprovedSource_Click(object sender, RoutedEventArgs e)
     {
         if (ApprovedList.SelectedItem is ApprovedImageMetadata selected && !string.IsNullOrWhiteSpace(selected.SourcePageUrl))
-            Process.Start(new ProcessStartInfo(selected.SourcePageUrl) { UseShellExecute = true });
+            OpenWebPage(selected.SourcePageUrl);
     }
 
     private async void Remove_Click(object sender, RoutedEventArgs e)
@@ -400,11 +398,14 @@ public partial class MainWindow : Window
 
 public sealed class FilePathToImageConverter : IValueConverter
 {
+    private readonly Dictionary<string, (DateTime Modified, BitmapImage Image)> _cache = new(StringComparer.OrdinalIgnoreCase);
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
     {
         try
         {
             if (value is not string path || !File.Exists(path)) return DependencyProperty.UnsetValue;
+            var modified = File.GetLastWriteTimeUtc(path);
+            if (_cache.TryGetValue(path, out var cached) && cached.Modified == modified) return cached.Image;
             var bitmap = new BitmapImage();
             bitmap.BeginInit();
             bitmap.CacheOption = BitmapCacheOption.OnLoad;
@@ -412,6 +413,8 @@ public sealed class FilePathToImageConverter : IValueConverter
             bitmap.UriSource = new Uri(path, UriKind.Absolute);
             bitmap.EndInit();
             bitmap.Freeze();
+            if (_cache.Count >= 256) _cache.Remove(_cache.Keys.First());
+            _cache[path] = (modified, bitmap);
             return bitmap;
         }
         catch

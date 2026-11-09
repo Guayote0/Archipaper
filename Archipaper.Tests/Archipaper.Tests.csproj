@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings></PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../Archipaper/Models/*.cs" Link="Models/%(Filename)%(Extension)" />
+    <Compile Include="../Archipaper/Services/RotationSchedule.cs;../Archipaper/Services/WallpaperSelector.cs;../Archipaper/Services/JsonStore.cs;../Archipaper/Services/AppPaths.cs;../Archipaper/Services/AppLog.cs;../Archipaper/Services/HttpTransfer.cs;../Archipaper/Services/IImageProvider.cs;../Archipaper/Services/DiscoveryService.cs" Link="Services/%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>
